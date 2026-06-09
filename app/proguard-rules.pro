@@ -1,0 +1,12 @@
+-keep class com.yausername.** { *; }
+-keep class com.yausername.youtubedl_android.** { *; }
+-keep class com.yausername.ffmpeg.** { *; }
+-dontwarn com.yausername.**
+-dontoptimize
+-keep class !com.ytmp3.** { *; }
+-dontwarn org.tukaani.xz.**
+-dontwarn javax.lang.model.**
+-dontwarn com.google.errorprone.**
+-dontwarn java.beans.ConstructorProperties
+-dontwarn java.beans.Transient
+-dontwarn org.w3c.dom.bootstrap.DOMImplementationRegistry
