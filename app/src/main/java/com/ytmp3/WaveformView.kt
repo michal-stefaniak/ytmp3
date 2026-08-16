@@ -81,6 +81,8 @@ class WaveformView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun currentRegions(): List<RegionMarker> = regions.toList()
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         // If setPeaks ran before the first layout pass, msPerPx was derived from width=0 and needs
