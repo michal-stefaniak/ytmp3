@@ -24,12 +24,21 @@ object FFmpegBinary {
         val command = mutableListOf(binaryPath(context)).apply { addAll(args) }
         val process = ProcessBuilder(command)
             .apply { environment()["LD_LIBRARY_PATH"] = ldLibraryPath(context) }
-            .redirectErrorStream(false)
             .start()
 
+        // Stdout can carry large binary output (raw PCM via pipe:1 in Task 3) while ffmpeg
+        // concurrently logs progress to stderr. Reading either stream to completion before
+        // touching the other risks a classic ProcessBuilder pipe deadlock once stderr fills
+        // its ~64KB buffer while we're still blocked draining stdout — so both are drained
+        // on separate threads at once.
+        var stderrText = ""
+        val stderrThread = Thread {
+            stderrText = process.errorStream.bufferedReader().readText()
+        }.apply { start() }
+
         val stdout = process.inputStream.readBytes()
-        val stderr = process.errorStream.bufferedReader().readText()
+        stderrThread.join()
         val exitCode = process.waitFor()
-        return FFmpegResult(exitCode, stdout, stderr)
+        return FFmpegResult(exitCode, stdout, stderrText)
     }
 }
