@@ -42,7 +42,7 @@
         <activity
             android:name=".SampleEditorActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode|density" />
 
         <service
             android:name=".DownloadForegroundService"

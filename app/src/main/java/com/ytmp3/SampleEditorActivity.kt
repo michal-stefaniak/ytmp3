@@ -25,6 +25,7 @@ class SampleEditorActivity : AppCompatActivity() {
     private var trackDurationMs: Long = 0
     private var previewJob: Job? = null
     private var previewPlayer: MediaPlayer? = null
+    private var exporting = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,7 +37,7 @@ class SampleEditorActivity : AppCompatActivity() {
         historyId = intent.getStringExtra("historyId")
         b.tvEditorTitle.text = title
 
-        b.waveform.onRegionsChanged = { regions -> b.btnExport.isEnabled = regions.isNotEmpty() }
+        b.waveform.onRegionsChanged = { regions -> b.btnExport.isEnabled = regions.isNotEmpty() && !exporting }
         b.waveform.onRegionTapped = { region -> previewRegion(region) }
         b.btnExport.setOnClickListener { exportRegions() }
 
@@ -66,7 +67,7 @@ class SampleEditorActivity : AppCompatActivity() {
             val duration = durationResult.getOrNull()
             if (duration == null || duration <= 0) {
                 b.progressExtracting.visibility = android.view.View.GONE
-                showErrorDialog(durationResult.exceptionOrNull()?.message ?: "Couldn't read audio duration")
+                showErrorDialog(durationResult.exceptionOrNull()?.message ?: "Couldn't read audio duration", finishOnDismiss = true)
                 return@launch
             }
             trackDurationMs = duration
@@ -78,7 +79,7 @@ class SampleEditorActivity : AppCompatActivity() {
                     b.waveform.visibility = android.view.View.VISIBLE
                     b.waveform.setPeaks(peaks, trackDurationMs)
                 },
-                onFailure = { showErrorDialog(it.message ?: "Failed to read audio") }
+                onFailure = { showErrorDialog(it.message ?: "Failed to read audio", finishOnDismiss = true) }
             )
         }
     }
@@ -104,6 +105,7 @@ class SampleEditorActivity : AppCompatActivity() {
             while (true) {
                 while (player.currentPosition < region.endMs) delay(100)
                 player.seekTo(region.startMs.toInt())
+                if (!player.isPlaying) player.start()
             }
         }
     }
@@ -116,6 +118,7 @@ class SampleEditorActivity : AppCompatActivity() {
     }
 
     private fun exportRegions() {
+        if (exporting) return
         val regions = b.waveform.currentRegions()
         if (regions.isEmpty()) return
 
@@ -128,9 +131,11 @@ class SampleEditorActivity : AppCompatActivity() {
             }
         }
 
+        exporting = true
         b.btnExport.isEnabled = false
         lifecycleScope.launch {
             val exported = SampleExporter.export(this@SampleEditorActivity, filePath, title, regions)
+            exporting = false
             b.btnExport.isEnabled = true
             if (exported.isEmpty()) {
                 showErrorDialog("Export failed for all regions")
@@ -157,18 +162,21 @@ class SampleEditorActivity : AppCompatActivity() {
             .setPositiveButton("Keep") { _, _ -> finish() }
             .setNegativeButton("Delete") { _, _ ->
                 File(filePath).delete()
-                historyId?.let { HistoryDb.get(this).markSampled(it) }
+                historyId?.let {
+                    HistoryDb.get(this).markSampled(it)
+                    DownloadManager.removeItem(it)
+                }
                 finish()
             }
             .setCancelable(false)
             .show()
     }
 
-    private fun showErrorDialog(message: String) {
+    private fun showErrorDialog(message: String, finishOnDismiss: Boolean = false) {
         AlertDialog.Builder(this)
             .setTitle("Error")
             .setMessage(message)
-            .setPositiveButton("OK", null)
+            .setPositiveButton("OK") { _, _ -> if (finishOnDismiss) finish() }
             .show()
     }
 

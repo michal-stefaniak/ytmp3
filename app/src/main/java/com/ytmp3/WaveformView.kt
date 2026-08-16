@@ -93,7 +93,7 @@ class WaveformView @JvmOverloads constructor(
         }
     }
 
-    private fun minMsPerPx() = 1f // 1ms/px = max zoom in
+    private fun minMsPerPx() = max(1f, trackDurationMs / max(1f, peaks.size.toFloat()) / 4f) // don't zoom in past ~1/4 of a peak bucket per pixel -- there's no more data to show
     private fun maxMsPerPx() = trackDurationMs / max(1f, width.toFloat())
 
     private fun xToMs(x: Float): Long = (scrollOffsetMs + x * msPerPx).toLong().coerceIn(0, trackDurationMs)
@@ -160,7 +160,8 @@ class WaveformView @JvmOverloads constructor(
         return true
     }
 
-    private fun findHandleNear(touchMs: Long, toleranceMs: Long = 200): Pair<RegionMarker, Boolean>? {
+    private fun findHandleNear(touchMs: Long): Pair<RegionMarker, Boolean>? {
+        val toleranceMs = (24 * resources.displayMetrics.density * msPerPx).toLong().coerceAtLeast(1)
         for (region in regions) {
             if (kotlin.math.abs(region.startMs - touchMs) <= toleranceMs) return region to true
             if (kotlin.math.abs(region.endMs - touchMs) <= toleranceMs) return region to false

@@ -18,6 +18,7 @@ object SampleExporter {
         regions: List<RegionMarker>
     ): List<ExportedSample> = withContext(Dispatchers.IO) {
         val tempDir = File(context.cacheDir, "sample_export_${System.currentTimeMillis()}").also { it.mkdirs() }
+        val exportBatchId = System.currentTimeMillis()
         try {
             regions.mapIndexedNotNull { index, region ->
                 // Each region's whole pipeline (ffmpeg cut + output copy) is independently
@@ -26,7 +27,7 @@ object SampleExporter {
                 // of it in the batch.
                 try {
                     val safeTitle = sourceTitle.take(40).replace(Regex("[^A-Za-z0-9 _-]"), "_")
-                    val fileName = "${safeTitle}_${index + 1}.wav"
+                    val fileName = "${safeTitle}_${exportBatchId}_${index + 1}.wav"
                     val tempOut = File(tempDir, fileName)
 
                     val result = FFmpegBinary.run(
