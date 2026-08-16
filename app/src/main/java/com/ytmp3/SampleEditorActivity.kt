@@ -1,5 +1,6 @@
 package com.ytmp3
 
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.StatFs
@@ -7,9 +8,11 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.ytmp3.databinding.ActivitySampleEditorBinding
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
@@ -33,10 +36,6 @@ class SampleEditorActivity : AppCompatActivity() {
         historyId = intent.getStringExtra("historyId")
         b.tvEditorTitle.text = title
 
-        val mp = MediaPlayer().apply { setDataSource(filePath); prepare() }
-        trackDurationMs = mp.duration.toLong()
-        mp.release()
-
         b.waveform.onRegionsChanged = { regions -> b.btnExport.isEnabled = regions.isNotEmpty() }
         b.waveform.onRegionTapped = { region -> previewRegion(region) }
         b.btnExport.setOnClickListener { exportRegions() }
@@ -47,6 +46,31 @@ class SampleEditorActivity : AppCompatActivity() {
     private fun loadWaveform() {
         b.progressExtracting.visibility = android.view.View.VISIBLE
         lifecycleScope.launch {
+            // Reading duration via MediaPlayer.prepare() would block the UI thread parsing the
+            // container (real risk on long/podcast-length tracks without a fast seek index) --
+            // MediaMetadataRetriever does the same job without decoding, and running it on IO
+            // keeps onCreate's first frame unblocked. release() (not close(), API 29+) is used
+            // since minSdk is 24.
+            val durationResult = withContext(Dispatchers.IO) {
+                runCatching {
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(filePath)
+                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                            ?.toLongOrNull() ?: 0L
+                    } finally {
+                        retriever.release()
+                    }
+                }
+            }
+            val duration = durationResult.getOrNull()
+            if (duration == null || duration <= 0) {
+                b.progressExtracting.visibility = android.view.View.GONE
+                showErrorDialog(durationResult.exceptionOrNull()?.message ?: "Couldn't read audio duration")
+                return@launch
+            }
+            trackDurationMs = duration
+
             val result = WaveformExtractor.extract(this@SampleEditorActivity, filePath)
             b.progressExtracting.visibility = android.view.View.GONE
             result.fold(
@@ -60,19 +84,35 @@ class SampleEditorActivity : AppCompatActivity() {
     }
 
     private fun previewRegion(region: RegionMarker) {
-        previewJob?.cancel()
-        previewPlayer?.release()
-        val player = MediaPlayer().apply {
-            setDataSource(filePath)
-            prepare()
-            seekTo(region.startMs.toInt())
-            start()
+        stopPreview()
+        val player = try {
+            MediaPlayer().apply {
+                setDataSource(filePath)
+                prepare()
+                seekTo(region.startMs.toInt())
+                start()
+            }
+        } catch (e: Exception) {
+            showErrorDialog(e.message ?: "Couldn't play preview")
+            return
         }
         previewPlayer = player
         previewJob = lifecycleScope.launch {
-            while (player.currentPosition < region.endMs) delay(100)
-            player.seekTo(region.startMs.toInt())
+            // Loops the region continuously (per the design spec) until stopPreview() cancels
+            // this job -- delay() is a cancellable suspension point, so cancellation unwinds the
+            // loop cleanly without needing the player to be touched after release().
+            while (true) {
+                while (player.currentPosition < region.endMs) delay(100)
+                player.seekTo(region.startMs.toInt())
+            }
         }
+    }
+
+    private fun stopPreview() {
+        previewJob?.cancel()
+        previewJob = null
+        previewPlayer?.release()
+        previewPlayer = null
     }
 
     private fun exportRegions() {
@@ -132,9 +172,15 @@ class SampleEditorActivity : AppCompatActivity() {
             .show()
     }
 
+    override fun onStop() {
+        // Preview audio must not keep playing once the activity leaves the foreground -- onDestroy
+        // alone isn't enough since the system can leave a backgrounded activity alive indefinitely.
+        stopPreview()
+        super.onStop()
+    }
+
     override fun onDestroy() {
-        previewJob?.cancel()
-        previewPlayer?.release()
+        stopPreview()
         super.onDestroy()
     }
 }
