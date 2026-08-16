@@ -38,7 +38,12 @@ class WaveformView @JvmOverloads constructor(
 
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            msPerPx = (msPerPx / detector.scaleFactor).coerceIn(minMsPerPx(), maxMsPerPx())
+            // maxMsPerPx() is 0 before setPeaks runs (trackDurationMs == 0) and can fall below
+            // minMsPerPx() on tracks shorter than the view's pixel width — coerceIn(lo, hi) throws
+            // if hi < lo, so hi is floored at lo to keep the range valid in both cases.
+            val hi = maxMsPerPx().coerceAtLeast(minMsPerPx())
+            msPerPx = (msPerPx / detector.scaleFactor).coerceIn(minMsPerPx(), hi)
+            scrollOffsetMs = scrollOffsetMs.coerceIn(0f, max(0f, trackDurationMs - width * msPerPx))
             invalidate()
             return true
         }
@@ -59,6 +64,7 @@ class WaveformView @JvmOverloads constructor(
         }
 
         override fun onLongPress(e: MotionEvent) {
+            if (draggingHandle != null) return
             pendingRegionStartMs = xToMs(e.x)
         }
     })
@@ -73,6 +79,16 @@ class WaveformView @JvmOverloads constructor(
     fun setRegions(regions: List<RegionMarker>) {
         this.regions = regions.toMutableList()
         invalidate()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        // If setPeaks ran before the first layout pass, msPerPx was derived from width=0 and needs
+        // re-deriving now that the real width is known.
+        if (trackDurationMs > 0) {
+            msPerPx = msPerPx.coerceIn(minMsPerPx(), maxMsPerPx().coerceAtLeast(minMsPerPx()))
+            scrollOffsetMs = scrollOffsetMs.coerceIn(0f, max(0f, trackDurationMs - w * msPerPx))
+        }
     }
 
     private fun minMsPerPx() = 1f // 1ms/px = max zoom in
@@ -90,6 +106,11 @@ class WaveformView @JvmOverloads constructor(
                 draggingHandle = findHandleNear(touchMs)
             }
             MotionEvent.ACTION_MOVE -> {
+                // No early return here: letting every MOVE reach gestureDetector below is what
+                // lets its internal long-press timer see the movement and cancel itself once slop
+                // is crossed. An early return here starves it of MOVE events, so a stale long-press
+                // fires mid-drag and creates a phantom region on release (see ACTION_UP) — the
+                // onScroll guard above is what keeps this safe from also triggering a pan.
                 draggingHandle?.let { (region, isStart) ->
                     val newMs = xToMs(event.x)
                     val idx = regions.indexOfFirst { it.id == region.id }
@@ -102,14 +123,13 @@ class WaveformView @JvmOverloads constructor(
                     }
                     regions[idx] = current.copy(startMs = clampedStart, endMs = clampedEnd)
                     invalidate()
-                    return true
                 }
                 pendingRegionStartMs?.let {
                     pendingRegionEndMs = xToMs(event.x)
                     invalidate()
                 }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_UP -> {
                 if (draggingHandle != null) {
                     draggingHandle = null
                     onRegionsChanged?.invoke(regions.toList())
@@ -119,14 +139,23 @@ class WaveformView @JvmOverloads constructor(
                     val (s, e) = RegionMarker.clamp(min(startMs, endMs), max(startMs, endMs), trackDurationMs)
                     regions.add(RegionMarker(startMs = s, endMs = e))
                     onRegionsChanged?.invoke(regions.toList())
-                    pendingRegionStartMs = null
-                    pendingRegionEndMs = null
-                    invalidate()
                 }
+                pendingRegionStartMs = null
+                pendingRegionEndMs = null
+                invalidate()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                // CANCEL means the gesture was aborted (e.g. a parent view intercepted it) — discard
+                // in-progress state rather than committing a region the user never actually released.
+                draggingHandle = null
+                pendingRegionStartMs = null
+                pendingRegionEndMs = null
+                invalidate()
             }
         }
 
-        return gestureDetector.onTouchEvent(event) || true
+        gestureDetector.onTouchEvent(event)
+        return true
     }
 
     private fun findHandleNear(touchMs: Long, toleranceMs: Long = 200): Pair<RegionMarker, Boolean>? {
