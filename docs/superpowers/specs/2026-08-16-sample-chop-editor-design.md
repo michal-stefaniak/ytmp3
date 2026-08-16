@@ -60,8 +60,15 @@ Opens with a file path. Responsibilities:
 1. Decode the audio to peak data on `Dispatchers.IO` (see Waveform extraction below),
    showing a progress spinner while extracting.
 2. Render peaks via a new `WaveformView` (custom `View`, `Canvas`-based):
-   horizontal pan/zoom, fixed peak-bucket count independent of track length (so a
-   90-minute file costs the same render/memory budget as a 3-minute one).
+   horizontal pan/zoom, fixed peak-bucket count independent of track length, so the
+   *render* cost of a 90-minute file matches a 3-minute one. **Known limitation (not
+   yet fixed, tracked for phase 2):** the *decode* cost does not — `WaveformExtractor`
+   currently buffers the entire decoded PCM stream before reducing it to peaks, so
+   memory scales linearly with track duration (roughly 86MB+ for a 90-minute track,
+   plus a transient buffer-doubling spike while reading ffmpeg's stdout). A failure
+   here degrades to the existing error dialog rather than crashing, but very long
+   tracks may not work in practice until this is replaced with a streaming
+   extract-and-fold implementation.
 3. Let the user create multiple regions by drag: each is a
    `RegionMarker(id: String, startMs: Long, endMs: Long, label: String)` held in
    the activity's view-model-less state (a simple `mutableListOf` is enough here —
