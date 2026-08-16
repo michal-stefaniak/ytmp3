@@ -57,7 +57,6 @@ class MainActivity : AppCompatActivity() {
             b.llTrimFields.visibility = if (checked) View.VISIBLE else View.GONE
         }
 
-        b.cbSampleMode.isChecked = Prefs.sampleMode
         b.cbSampleMode.setOnCheckedChangeListener { _, checked ->
             Prefs.sampleMode = checked
             if (checked) {
@@ -68,6 +67,7 @@ class MainActivity : AppCompatActivity() {
                 b.cbTrim.isEnabled = true
             }
         }
+        b.cbSampleMode.isChecked = Prefs.sampleMode
 
         b.btnDownload.setOnClickListener {
             val raw = b.etUrls.text.toString()
@@ -87,15 +87,14 @@ class MainActivity : AppCompatActivity() {
         b.btnSettings.setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         b.btnHistory.setOnClickListener { startActivity(Intent(this, HistoryActivity::class.java)) }
 
-        val autoOpenedIds = mutableSetOf<String>()
         lifecycleScope.launch {
             vm.downloads.collect { items ->
                 adapter.submitList(items.toList())
                 items.forEach { item ->
                     if (item.sampleMode && item.status == DownloadStatus.DONE &&
-                        item.filePath != null && item.id !in autoOpenedIds
+                        item.filePath != null && !item.filePath.startsWith("content://") &&
+                        vm.markAutoOpened(item.id)
                     ) {
-                        autoOpenedIds += item.id
                         openSampleEditor(item.filePath, item.title, item.id)
                     }
                 }
@@ -160,7 +159,14 @@ class MainActivity : AppCompatActivity() {
     private fun doSubmit(urls: List<String>) {
         val start = b.etTrimStart.text.toString().takeIf { b.cbTrim.isChecked && it.isNotBlank() }
         val end = b.etTrimEnd.text.toString().takeIf { b.cbTrim.isChecked && it.isNotBlank() }
-        vm.submitUrls(urls, start, end, sampleMode = Prefs.sampleMode)
+        // Auto-open is a single-URL feature: "Sample mode on" plus a multi-line paste of several
+        // URLs would otherwise auto-chain an editor open per finished download, exactly the
+        // auto-chaining the design forbids for playlists -- just reached through a different entry
+        // point. Sample mode still fetches full tracks either way (no --download-sections is added
+        // regardless, since the trim fields are hidden whenever sample mode is on); only the
+        // auto-open trigger is restricted to a genuine single-URL submission.
+        val autoOpenSampleMode = Prefs.sampleMode && urls.size == 1
+        vm.submitUrls(urls, start, end, sampleMode = autoOpenSampleMode)
     }
 
     private fun openSampleEditor(filePath: String, title: String, historyId: String?) {

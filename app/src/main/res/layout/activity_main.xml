@@ -73,15 +73,6 @@
             android:textSize="13sp"
             android:buttonTint="#CC0000" />
 
-        <CheckBox
-            android:id="@+id/cb_sample_mode"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Sample mode (waveform chop editor)"
-            android:textColor="#AAAAAA"
-            android:textSize="13sp"
-            android:buttonTint="#CC0000" />
-
         <LinearLayout
             android:id="@+id/ll_trim_fields"
             android:layout_width="match_parent"
@@ -123,6 +114,15 @@
                 android:padding="8dp"
                 android:textSize="13sp" />
         </LinearLayout>
+
+        <CheckBox
+            android:id="@+id/cb_sample_mode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Sample mode (waveform chop editor)"
+            android:textColor="#AAAAAA"
+            android:textSize="13sp"
+            android:buttonTint="#CC0000" />
     </LinearLayout>
 
     <LinearLayout
