@@ -1280,18 +1280,26 @@ to:
 
 No other changes needed in `DownloadManager.kt` — `startDownload` already only adds `--download-sections` when `trimStart != null`, and `MainActivity`'s trim fields are already hidden when sample mode is on (Step 6 below), so full tracks are fetched naturally.
 
-- [ ] **Step 4: Thread `sampleMode` through `DownloadViewModel`**
+- [ ] **Step 4: Thread `sampleMode` through `DownloadViewModel`, and track auto-opened editors there**
 
 In `DownloadViewModel.kt`:
 
 ```kotlin
     fun submitUrls(urls: List<String>, trimStart: String? = null, trimEnd: String? = null, sampleMode: Boolean = false) =
         DownloadManager.submitUrls(urls, trimStart, trimEnd, sampleMode)
+
+    // Tracks which finished sample-mode items have already auto-opened their editor. Lives here
+    // rather than as an Activity-local var: MainActivity has no configChanges, so a rotation
+    // destroys and recreates it -- an Activity-scoped set would be wiped, and DownloadManager's
+    // StateFlow would immediately re-deliver the already-finished item to a fresh collector,
+    // re-opening the editor. The ViewModel survives configuration changes, so this doesn't.
+    private val autoOpenedIds = mutableSetOf<String>()
+    fun markAutoOpened(id: String): Boolean = autoOpenedIds.add(id) // true if newly added
 ```
 
 - [ ] **Step 5: Add the Sample mode toggle to `activity_main.xml`**
 
-Add directly below the existing `cb_trim` `CheckBox` in `activity_main.xml` (inside the same vertical `LinearLayout`):
+Add directly below the existing `ll_trim_fields` block (i.e. after the whole trim group, not spliced between `cb_trim` and its own fields — that ordering would render the trim group's input row below an unrelated checkbox) in `activity_main.xml` (inside the same vertical `LinearLayout`):
 
 ```xml
         <CheckBox
@@ -1306,10 +1314,9 @@ Add directly below the existing `cb_trim` `CheckBox` in `activity_main.xml` (ins
 
 - [ ] **Step 6: Wire the toggle and auto-open behavior in `MainActivity.kt`**
 
-Add to `onCreate`, near the existing `b.cbTrim.setOnCheckedChangeListener` block:
+Add to `onCreate`, near the existing `b.cbTrim.setOnCheckedChangeListener` block. The listener is attached *before* `isChecked` is set from the persisted pref — `CompoundButton.setChecked()` only invokes its listener when the value actually changes from the widget's current state, so restoring a persisted `true` needs the listener already attached to correctly disable the trim checkbox on startup, not just on a live toggle:
 
 ```kotlin
-        b.cbSampleMode.isChecked = Prefs.sampleMode
         b.cbSampleMode.setOnCheckedChangeListener { _, checked ->
             Prefs.sampleMode = checked
             if (checked) {
@@ -1320,6 +1327,7 @@ Add to `onCreate`, near the existing `b.cbTrim.setOnCheckedChangeListener` block
                 b.cbTrim.isEnabled = true
             }
         }
+        b.cbSampleMode.isChecked = Prefs.sampleMode
 ```
 
 Change `doSubmit` from:
@@ -1338,24 +1346,30 @@ to:
     private fun doSubmit(urls: List<String>) {
         val start = b.etTrimStart.text.toString().takeIf { b.cbTrim.isChecked && it.isNotBlank() }
         val end = b.etTrimEnd.text.toString().takeIf { b.cbTrim.isChecked && it.isNotBlank() }
-        vm.submitUrls(urls, start, end, sampleMode = Prefs.sampleMode)
+        // Auto-open is a single-URL feature: "Sample mode on" plus a multi-line paste of several
+        // URLs would otherwise auto-chain an editor open per finished download, exactly the
+        // auto-chaining the design forbids for playlists -- just reached through a different entry
+        // point. Sample mode still fetches full tracks either way (no --download-sections is added
+        // regardless, since the trim fields are hidden whenever sample mode is on); only the
+        // auto-open trigger is restricted to a genuine single-URL submission.
+        val autoOpenSampleMode = Prefs.sampleMode && urls.size == 1
+        vm.submitUrls(urls, start, end, sampleMode = autoOpenSampleMode)
     }
 ```
 
 This only fires from the single-URL submit path in `btnDownload`'s click listener (`if (singles.isNotEmpty()) submitWithDupeCheck(singles)` → `doSubmit`), not from `PlaylistPreviewActivity` (which calls `DownloadManager.submitUrls(selected)` directly with `sampleMode` defaulting to `false`) — matching the design doc's "no auto-chaining editors across a playlist" decision without needing any playlist-specific code.
 
-Add auto-open logic to the existing `vm.downloads.collect` block:
+Add auto-open logic to the existing `vm.downloads.collect` block. SAF-configured downloads store a `content://` URI as `filePath` (see `DownloadManager.copyToSaf`), which ffmpeg cannot read as a file path — sample editing is out of scope for SAF-stored files in phase 1, so both auto-open and the Edit button (Step 8) skip them rather than opening an editor that immediately dead-ends on an extraction error:
 
 ```kotlin
-        val autoOpenedIds = mutableSetOf<String>()
         lifecycleScope.launch {
             vm.downloads.collect { items ->
                 adapter.submitList(items.toList())
                 items.forEach { item ->
                     if (item.sampleMode && item.status == DownloadStatus.DONE &&
-                        item.filePath != null && item.id !in autoOpenedIds
+                        item.filePath != null && !item.filePath.startsWith("content://") &&
+                        vm.markAutoOpened(item.id)
                     ) {
-                        autoOpenedIds += item.id
                         openSampleEditor(item.filePath, item.title, item.id)
                     }
                 }
@@ -1363,7 +1377,7 @@ Add auto-open logic to the existing `vm.downloads.collect` block:
         }
 ```
 
-(This replaces the existing simpler `lifecycleScope.launch { vm.downloads.collect { adapter.submitList(it.toList()) } }` block.)
+(This replaces the existing simpler `lifecycleScope.launch { vm.downloads.collect { adapter.submitList(it.toList()) } }` block. `vm.markAutoOpened(item.id)` both checks and records in one call — it returns `true` only the first time a given id is passed, so it doubles as the idempotency guard without a separate Activity-local set that a rotation would wipe.)
 
 Add the shared launch helper (also used by the manual Edit button in Step 8):
 
@@ -1410,10 +1424,12 @@ class DownloadAdapter(
 ) : ListAdapter<DownloadItem, DownloadAdapter.VH>(DIFF) {
 ```
 
-In `VH.bind`, add:
+In `VH.bind`, add (the `content://` check mirrors the same SAF-path exclusion in Step 6's auto-open logic, for the same reason — ffmpeg cannot read a `content://` URI as a file path):
 
 ```kotlin
-            b.btnEditSample.visibility = if (item.status == DownloadStatus.DONE && item.filePath != null) View.VISIBLE else View.GONE
+            val isEditable = item.status == DownloadStatus.DONE &&
+                item.filePath != null && !item.filePath.startsWith("content://")
+            b.btnEditSample.visibility = if (isEditable) View.VISIBLE else View.GONE
             b.btnEditSample.setOnClickListener { onEditClick(item) }
 ```
 
