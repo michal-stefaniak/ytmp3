@@ -508,7 +508,7 @@ class WaveformView @JvmOverloads constructor(
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
-            if (draggingHandle != null) return false
+            if (draggingHandle != null || pendingRegionStartMs != null) return false
             scrollOffsetMs = (scrollOffsetMs + dx * msPerPx).coerceIn(0f, max(0f, trackDurationMs - width * msPerPx))
             invalidate()
             return true
