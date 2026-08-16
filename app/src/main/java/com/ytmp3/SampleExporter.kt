@@ -20,24 +20,32 @@ object SampleExporter {
         val tempDir = File(context.cacheDir, "sample_export_${System.currentTimeMillis()}").also { it.mkdirs() }
         try {
             regions.mapIndexedNotNull { index, region ->
-                val safeTitle = sourceTitle.take(40).replace(Regex("[^A-Za-z0-9 _-]"), "_")
-                val fileName = "${safeTitle}_${index + 1}.wav"
-                val tempOut = File(tempDir, fileName)
+                // Each region's whole pipeline (ffmpeg cut + output copy) is independently
+                // resilient: an exception anywhere here (e.g. disk-full during the output copy)
+                // skips just this region rather than losing every already-exported region ahead
+                // of it in the batch.
+                try {
+                    val safeTitle = sourceTitle.take(40).replace(Regex("[^A-Za-z0-9 _-]"), "_")
+                    val fileName = "${safeTitle}_${index + 1}.wav"
+                    val tempOut = File(tempDir, fileName)
 
-                val result = FFmpegBinary.run(
-                    context,
-                    listOf(
-                        "-i", sourceFilePath,
-                        "-ss", (region.startMs / 1000.0).toString(),
-                        "-to", (region.endMs / 1000.0).toString(),
-                        "-c:a", "pcm_s16le",
-                        tempOut.absolutePath
+                    val result = FFmpegBinary.run(
+                        context,
+                        listOf(
+                            "-i", sourceFilePath,
+                            "-ss", (region.startMs / 1000.0).toString(),
+                            "-to", (region.endMs / 1000.0).toString(),
+                            "-c:a", "pcm_s16le",
+                            tempOut.absolutePath
+                        )
                     )
-                )
-                if (result.exitCode != 0 || !tempOut.exists()) return@mapIndexedNotNull null
+                    if (result.exitCode != 0 || !tempOut.exists()) return@mapIndexedNotNull null
 
-                val finalPath = moveToOutput(context, tempOut)
-                finalPath?.let { ExportedSample(region, it) }
+                    val finalPath = moveToOutput(context, tempOut)
+                    finalPath?.let { ExportedSample(region, it) }
+                } catch (e: Exception) {
+                    null
+                }
             }
         } finally {
             tempDir.deleteRecursively()
@@ -58,9 +66,12 @@ object SampleExporter {
         val root = DocumentFile.fromTreeUri(context, treeUri) ?: return null
         val samplesDir = root.findFile("Samples") ?: root.createDirectory("Samples") ?: return null
         val dest = samplesDir.createFile("audio/wav", file.nameWithoutExtension) ?: return null
-        context.contentResolver.openOutputStream(dest.uri)?.use { out ->
+        // openOutputStream can return null for some DocumentsProvider implementations; without this
+        // check, a write that silently didn't happen would still report success to the caller.
+        val written = context.contentResolver.openOutputStream(dest.uri)?.use { out ->
             file.inputStream().use { it.copyTo(out) }
-        }
-        return dest.uri.toString()
+            true
+        } ?: false
+        return if (written) dest.uri.toString() else null
     }
 }
