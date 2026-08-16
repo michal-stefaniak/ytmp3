@@ -22,12 +22,13 @@ class FFmpegBinaryTest {
     }
 
     @Test
-    fun `ldLibraryPath points at the ffmpeg module's extracted usr-lib dir`() {
+    fun `ldLibraryPath includes both the ffmpeg and python modules' extracted usr-lib dirs`() {
         val ctx = mockk<Context>()
         every { ctx.noBackupFilesDir } returns File("/data/data/com.ytmp3/no_backup")
 
         assertEquals(
-            "/data/data/com.ytmp3/no_backup/youtubedl-android/packages/ffmpeg/usr/lib",
+            "/data/data/com.ytmp3/no_backup/youtubedl-android/packages/ffmpeg/usr/lib:" +
+                "/data/data/com.ytmp3/no_backup/youtubedl-android/packages/python/usr/lib",
             FFmpegBinary.ldLibraryPath(ctx)
         )
     }
