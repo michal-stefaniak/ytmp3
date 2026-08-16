@@ -35,8 +35,8 @@ object DownloadManager {
         semaphore = Semaphore(Prefs.concurrency)
     }
 
-    fun submitUrls(urls: List<String>, trimStart: String? = null, trimEnd: String? = null) {
-        val items = urls.map { DownloadItem(url = it) }
+    fun submitUrls(urls: List<String>, trimStart: String? = null, trimEnd: String? = null, sampleMode: Boolean = false) {
+        val items = urls.map { DownloadItem(url = it, sampleMode = sampleMode) }
         _downloads.value = _downloads.value + items
         startService()
         items.forEach { startDownload(it, trimStart, trimEnd) }

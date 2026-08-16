@@ -31,7 +31,8 @@ class MainActivity : AppCompatActivity() {
         onRetry      = { id  -> vm.retry(id) },
         onErrorClick = { msg -> showErrorDialog(msg) },
         onPlayClick  = { fp  -> playFile(fp) },
-        onLongClick  = { url -> copyUrlToClipboard(url) }
+        onLongClick  = { url -> copyUrlToClipboard(url) },
+        onEditClick  = { item -> item.filePath?.let { openSampleEditor(it, item.title, item.id) } }
     )
     private var lastSniffedUrl: String? = null
 
@@ -56,6 +57,18 @@ class MainActivity : AppCompatActivity() {
             b.llTrimFields.visibility = if (checked) View.VISIBLE else View.GONE
         }
 
+        b.cbSampleMode.isChecked = Prefs.sampleMode
+        b.cbSampleMode.setOnCheckedChangeListener { _, checked ->
+            Prefs.sampleMode = checked
+            if (checked) {
+                b.cbTrim.isChecked = false
+                b.cbTrim.isEnabled = false
+                b.llTrimFields.visibility = View.GONE
+            } else {
+                b.cbTrim.isEnabled = true
+            }
+        }
+
         b.btnDownload.setOnClickListener {
             val raw = b.etUrls.text.toString()
             val urls = raw.lines().map { it.trim() }.filter { it.startsWith("http") }
@@ -74,8 +87,19 @@ class MainActivity : AppCompatActivity() {
         b.btnSettings.setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         b.btnHistory.setOnClickListener { startActivity(Intent(this, HistoryActivity::class.java)) }
 
+        val autoOpenedIds = mutableSetOf<String>()
         lifecycleScope.launch {
-            vm.downloads.collect { adapter.submitList(it.toList()) }
+            vm.downloads.collect { items ->
+                adapter.submitList(items.toList())
+                items.forEach { item ->
+                    if (item.sampleMode && item.status == DownloadStatus.DONE &&
+                        item.filePath != null && item.id !in autoOpenedIds
+                    ) {
+                        autoOpenedIds += item.id
+                        openSampleEditor(item.filePath, item.title, item.id)
+                    }
+                }
+            }
         }
 
         handleShareIntent(intent)
@@ -136,7 +160,16 @@ class MainActivity : AppCompatActivity() {
     private fun doSubmit(urls: List<String>) {
         val start = b.etTrimStart.text.toString().takeIf { b.cbTrim.isChecked && it.isNotBlank() }
         val end = b.etTrimEnd.text.toString().takeIf { b.cbTrim.isChecked && it.isNotBlank() }
-        vm.submitUrls(urls, start, end)
+        vm.submitUrls(urls, start, end, sampleMode = Prefs.sampleMode)
+    }
+
+    private fun openSampleEditor(filePath: String, title: String, historyId: String?) {
+        startActivity(
+            Intent(this, SampleEditorActivity::class.java)
+                .putExtra("filePath", filePath)
+                .putExtra("title", title)
+                .putExtra("historyId", historyId)
+        )
     }
 
     private fun playFile(filePath: String) {

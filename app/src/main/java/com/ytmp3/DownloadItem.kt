@@ -13,5 +13,6 @@ data class DownloadItem(
     val errorMsg: String? = null,
     val filePath: String? = null,
     val speedKbps: Int = 0,
-    val etaSeconds: Long = 0
+    val etaSeconds: Long = 0,
+    val sampleMode: Boolean = false
 )

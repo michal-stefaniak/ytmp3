@@ -12,7 +12,8 @@ class DownloadAdapter(
     private val onRetry: (String) -> Unit,
     private val onErrorClick: (String) -> Unit,
     private val onPlayClick: (String) -> Unit,
-    private val onLongClick: (String) -> Unit
+    private val onLongClick: (String) -> Unit,
+    private val onEditClick: (DownloadItem) -> Unit
 ) : ListAdapter<DownloadItem, DownloadAdapter.VH>(DIFF) {
 
     inner class VH(private val b: ItemDownloadBinding) : RecyclerView.ViewHolder(b.root) {
@@ -36,6 +37,8 @@ class DownloadAdapter(
             b.progress.visibility = if (item.status == DownloadStatus.DONE) View.INVISIBLE else View.VISIBLE
             b.btnRetry.visibility = if (item.status == DownloadStatus.ERROR) View.VISIBLE else View.GONE
             b.btnRetry.setOnClickListener { onRetry(item.id) }
+            b.btnEditSample.visibility = if (item.status == DownloadStatus.DONE && item.filePath != null) View.VISIBLE else View.GONE
+            b.btnEditSample.setOnClickListener { onEditClick(item) }
             b.root.setOnClickListener {
                 when (item.status) {
                     DownloadStatus.ERROR -> onErrorClick(item.errorMsg ?: "Unknown error")

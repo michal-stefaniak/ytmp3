@@ -62,4 +62,8 @@ object Prefs {
     var showSpeed: Boolean
         get() = getBool("showSpeed", true)
         set(v) { setBool("showSpeed", v) }
+
+    var sampleMode: Boolean
+        get() = getBool("sampleMode", false)
+        set(v) { setBool("sampleMode", v) }
 }
