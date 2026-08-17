@@ -18,6 +18,7 @@ class DownloadViewModel(app: Application) : AndroidViewModel(app) {
     // re-opening the editor. The ViewModel survives configuration changes, so this doesn't.
     private val autoOpenedIds = mutableSetOf<String>()
     fun markAutoOpened(id: String): Boolean = autoOpenedIds.add(id) // true if newly added
+    fun hasAutoOpened(id: String): Boolean = id in autoOpenedIds
 
     fun retry(id: String) = DownloadManager.retry(id)
 

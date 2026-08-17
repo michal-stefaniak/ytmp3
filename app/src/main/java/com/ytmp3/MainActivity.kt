@@ -15,7 +15,9 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -36,6 +38,10 @@ class MainActivity : AppCompatActivity() {
         onEditClick  = { item -> item.filePath?.let { openSampleEditor(it, item.title, item.id) } }
     )
     private var lastSniffedUrl: String? = null
+    // Guards against stacking a second auto-opened SampleEditorActivity before the first has
+    // actually taken MainActivity out of the foreground (see the auto-open collector below).
+    // Cleared on onResume() -- reached once the user returns from a previously opened editor.
+    private var editorOpenInFlight = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,14 +96,32 @@ class MainActivity : AppCompatActivity() {
         b.btnHistory.setOnClickListener { startActivity(Intent(this, HistoryActivity::class.java)) }
 
         lifecycleScope.launch {
-            vm.downloads.collect { items ->
-                adapter.submitList(items.toList())
-                items.forEach { item ->
-                    if (item.sampleMode && item.status == DownloadStatus.DONE &&
-                        item.filePath != null && !item.filePath.startsWith("content://") &&
-                        vm.markAutoOpened(item.id)
-                    ) {
-                        openSampleEditor(item.filePath, item.title, item.id)
+            // repeatOnLifecycle(STARTED) stops this collector while MainActivity is
+            // stopped/backgrounded -- without it, a sample-mode download finishing while the app
+            // is backgrounded (or while SampleEditorActivity, opened by an earlier auto-open, is
+            // covering MainActivity and has stopped it) would call startActivity() from a
+            // non-foreground context, which Android 10+ can silently block.
+            //
+            // editorOpenInFlight guards a narrower race repeatOnLifecycle alone can't close: two
+            // sample-mode downloads finishing within the *same* StateFlow emission while
+            // MainActivity is genuinely in the foreground (no editor open yet). Without it,
+            // openSampleEditor() for the first item wouldn't actually stop MainActivity until the
+            // activity transition completes, so this synchronous collect block would still reach
+            // the second item and stack a duplicate editor on top of the first. Only the single
+            // next not-yet-opened item is opened per emission; onResume() (reached once the user
+            // returns from a previously opened editor) clears the flag so the next one can open.
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                vm.downloads.collect { items ->
+                    adapter.submitList(items.toList())
+                    if (editorOpenInFlight) return@collect
+                    val toOpen = items.firstOrNull { item ->
+                        item.sampleMode && item.status == DownloadStatus.DONE &&
+                            item.filePath != null && !item.filePath.startsWith("content://") &&
+                            !vm.hasAutoOpened(item.id)
+                    }
+                    if (toOpen?.filePath != null && vm.markAutoOpened(toOpen.id)) {
+                        editorOpenInFlight = true
+                        openSampleEditor(toOpen.filePath, toOpen.title, toOpen.id)
                     }
                 }
             }
@@ -109,6 +133,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        editorOpenInFlight = false
         if (Prefs.clipboardSniff) checkClipboard()
     }
 
