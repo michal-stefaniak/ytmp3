@@ -86,8 +86,16 @@ class SampleEditorActivity : AppCompatActivity() {
             // Loops the region continuously (per the design spec) until stopPreview() cancels
             // this job -- delay() is a cancellable suspension point, so cancellation unwinds the
             // loop cleanly without needing the player to be touched after release().
+            //
+            // The inner wait is a do-while (always delay(100) at least once) rather than a
+            // while-condition: seekTo() is asynchronous, so right after re-seeking to the region
+            // start, player.currentPosition can still briefly report the stale pre-seek (past-end)
+            // value. A plain `while (currentPosition < endMs) delay(100)` would then evaluate false
+            // on entry and skip its own delay, so the outer loop immediately re-seeks/re-starts
+            // again -- a tight zero-delay spin on the Main dispatcher until the native position
+            // catches up.
             while (true) {
-                while (player.currentPosition < region.endMs) delay(100)
+                do { delay(100) } while (player.currentPosition < region.endMs)
                 player.seekTo(region.startMs.toInt())
                 if (!player.isPlaying) player.start()
             }
