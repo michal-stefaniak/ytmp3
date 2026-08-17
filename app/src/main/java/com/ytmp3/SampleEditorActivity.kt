@@ -1,6 +1,5 @@
 package com.ytmp3
 
-import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.StatFs
@@ -47,37 +46,22 @@ class SampleEditorActivity : AppCompatActivity() {
     private fun loadWaveform() {
         b.progressExtracting.visibility = android.view.View.VISIBLE
         lifecycleScope.launch {
-            // Reading duration via MediaPlayer.prepare() would block the UI thread parsing the
-            // container (real risk on long/podcast-length tracks without a fast seek index) --
-            // MediaMetadataRetriever does the same job without decoding, and running it on IO
-            // keeps onCreate's first frame unblocked. release() (not close(), API 29+) is used
-            // since minSdk is 24.
-            val durationResult = withContext(Dispatchers.IO) {
-                runCatching {
-                    val retriever = MediaMetadataRetriever()
-                    try {
-                        retriever.setDataSource(filePath)
-                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                            ?.toLongOrNull() ?: 0L
-                    } finally {
-                        retriever.release()
-                    }
-                }
-            }
-            val duration = durationResult.getOrNull()
-            if (duration == null || duration <= 0) {
-                b.progressExtracting.visibility = android.view.View.GONE
-                showErrorDialog(durationResult.exceptionOrNull()?.message ?: "Couldn't read audio duration", finishOnDismiss = true)
-                return@launch
-            }
-            trackDurationMs = duration
-
+            // Duration comes from WaveformExtractor's own ffmpeg decode (sample count / sample
+            // rate) rather than from a separate probe like MediaMetadataRetriever. Using a second,
+            // unreconciled duration source here would let WaveformView's ms-per-peak-bucket
+            // (derived from that duration) drift out of sync with SampleExporter's ffmpeg -ss/-to
+            // cuts (which operate on the real file's own timescale), silently shifting every
+            // exported region. It also avoids hard-gating the whole feature on
+            // MediaMetadataRetriever successfully reporting a duration -- a known failure mode for
+            // MP3s with embedded thumbnail/metadata (which every download from this app has) that
+            // ffmpeg itself can often still decode fine.
             val result = WaveformExtractor.extract(this@SampleEditorActivity, filePath)
             b.progressExtracting.visibility = android.view.View.GONE
             result.fold(
-                onSuccess = { peaks ->
+                onSuccess = { data ->
+                    trackDurationMs = data.durationMs
                     b.waveform.visibility = android.view.View.VISIBLE
-                    b.waveform.setPeaks(peaks, trackDurationMs)
+                    b.waveform.setPeaks(data.peaks, trackDurationMs)
                 },
                 onFailure = { showErrorDialog(it.message ?: "Failed to read audio", finishOnDismiss = true) }
             )

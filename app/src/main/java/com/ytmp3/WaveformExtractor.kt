@@ -8,11 +8,16 @@ import java.nio.ByteOrder
 
 object WaveformExtractor {
 
+    /** Sample rate ffmpeg is asked to decode to -- also used to derive [WaveformData.durationMs]. */
+    private const val SAMPLE_RATE_HZ = 8000
+
+    data class WaveformData(val peaks: List<PeakMath.PeakBucket>, val durationMs: Long)
+
     suspend fun extract(
         context: Context,
         filePath: String,
         bucketCount: Int = 2000
-    ): Result<List<PeakMath.PeakBucket>> = withContext(Dispatchers.IO) {
+    ): Result<WaveformData> = withContext(Dispatchers.IO) {
         runCatching {
             val result = FFmpegBinary.run(
                 context,
@@ -20,7 +25,7 @@ object WaveformExtractor {
                     "-i", filePath,
                     "-f", "s16le",
                     "-ac", "1",
-                    "-ar", "8000",
+                    "-ar", SAMPLE_RATE_HZ.toString(),
                     "-acodec", "pcm_s16le",
                     "pipe:1"
                 )
@@ -29,7 +34,15 @@ object WaveformExtractor {
                 throw IllegalStateException("ffmpeg peak extraction failed: ${result.stderr}")
             }
             val pcm = bytesToShorts(result.stdout)
-            PeakMath.reduceToPeaks(pcm, bucketCount)
+            // Duration is derived from this same ffmpeg decode (sample count / sample rate) rather
+            // than from a separate source like MediaMetadataRetriever. MediaMetadataRetriever is a
+            // known source of inaccurate durations for MP3s carrying embedded thumbnail/metadata --
+            // which every download from this app has (--embed-thumbnail --embed-metadata) -- and
+            // WaveformView derives its ms-per-peak-bucket from this duration while SampleExporter
+            // cuts the real file with ffmpeg -ss/-to using the same ms values. Two unreconciled
+            // duration sources would let those diverge silently, exporting a shifted slice of audio.
+            val durationMs = pcm.size.toLong() * 1000L / SAMPLE_RATE_HZ
+            WaveformData(PeakMath.reduceToPeaks(pcm, bucketCount), durationMs)
         }
     }
 
