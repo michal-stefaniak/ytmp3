@@ -12,11 +12,12 @@ data class HistoryRecord(
     val timestamp: Long,
     val status: String,
     val kind: String = "FULL_TRACK",
-    val parentId: String? = null
+    val parentId: String? = null,
+    val filePath: String? = null
 )
 
 class HistoryDb private constructor(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, "history.db", null, 2) {
+    SQLiteOpenHelper(context.applicationContext, "history.db", null, 3) {
 
     companion object {
         @Volatile private var inst: HistoryDb? = null
@@ -28,7 +29,7 @@ class HistoryDb private constructor(context: Context) :
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE history (id TEXT PRIMARY KEY, url TEXT, title TEXT, timestamp INTEGER, status TEXT, " +
-                "kind TEXT NOT NULL DEFAULT 'FULL_TRACK', parentId TEXT)"
+                "kind TEXT NOT NULL DEFAULT 'FULL_TRACK', parentId TEXT, filePath TEXT)"
         )
     }
 
@@ -36,6 +37,9 @@ class HistoryDb private constructor(context: Context) :
         if (old < 2) {
             db.execSQL("ALTER TABLE history ADD COLUMN kind TEXT NOT NULL DEFAULT 'FULL_TRACK'")
             db.execSQL("ALTER TABLE history ADD COLUMN parentId TEXT")
+        }
+        if (old < 3) {
+            db.execSQL("ALTER TABLE history ADD COLUMN filePath TEXT")
         }
     }
 
@@ -50,6 +54,7 @@ class HistoryDb private constructor(context: Context) :
                 put("status", r.status)
                 put("kind", r.kind)
                 put("parentId", r.parentId)
+                put("filePath", r.filePath)
             },
             SQLiteDatabase.CONFLICT_REPLACE
         )
@@ -59,7 +64,7 @@ class HistoryDb private constructor(context: Context) :
         insert(
             HistoryRecord(
                 id = id, url = url, title = title, timestamp = System.currentTimeMillis(),
-                status = "DONE", kind = "SAMPLE", parentId = parentId
+                status = "DONE", kind = "SAMPLE", parentId = parentId, filePath = filePath
             )
         )
     }
@@ -71,7 +76,7 @@ class HistoryDb private constructor(context: Context) :
     fun getAll(): List<HistoryRecord> {
         val list = mutableListOf<HistoryRecord>()
         readableDatabase.rawQuery(
-            "SELECT id, url, title, timestamp, status, kind, parentId FROM history ORDER BY timestamp DESC", null
+            "SELECT id, url, title, timestamp, status, kind, parentId, filePath FROM history ORDER BY timestamp DESC", null
         ).use { c ->
             while (c.moveToNext()) {
                 list += HistoryRecord(
@@ -81,7 +86,8 @@ class HistoryDb private constructor(context: Context) :
                     timestamp = c.getLong(3),
                     status = c.getString(4),
                     kind = c.getString(5),
-                    parentId = c.getString(6)
+                    parentId = c.getString(6),
+                    filePath = c.getString(7)
                 )
             }
         }
@@ -94,11 +100,11 @@ class HistoryDb private constructor(context: Context) :
 
     fun findByUrl(url: String): HistoryRecord? {
         readableDatabase.rawQuery(
-            "SELECT id,url,title,timestamp,status,kind,parentId FROM history WHERE url=? AND status='DONE' LIMIT 1",
+            "SELECT id,url,title,timestamp,status,kind,parentId,filePath FROM history WHERE url=? AND status='DONE' LIMIT 1",
             arrayOf(url)
         ).use { c ->
             if (!c.moveToFirst()) return null
-            return HistoryRecord(c.getString(0), c.getString(1), c.getString(2), c.getLong(3), c.getString(4), c.getString(5), c.getString(6))
+            return HistoryRecord(c.getString(0), c.getString(1), c.getString(2), c.getLong(3), c.getString(4), c.getString(5), c.getString(6), c.getString(7))
         }
     }
 }
