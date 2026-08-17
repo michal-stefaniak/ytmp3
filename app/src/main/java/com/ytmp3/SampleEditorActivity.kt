@@ -7,6 +7,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.ytmp3.databinding.ActivitySampleEditorBinding
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -70,34 +71,50 @@ class SampleEditorActivity : AppCompatActivity() {
 
     private fun previewRegion(region: RegionMarker) {
         stopPreview()
-        val player = try {
-            MediaPlayer().apply {
-                setDataSource(filePath)
-                prepare()
-                seekTo(region.startMs.toInt())
-                start()
-            }
-        } catch (e: Exception) {
-            showErrorDialog(e.message ?: "Couldn't play preview")
-            return
-        }
-        previewPlayer = player
+        // MediaPlayer.prepare() blocks (unlike prepareAsync()) parsing/buffering the container --
+        // on a large file or slow storage this can stall the main thread inside a touch-tap
+        // callback, risking a visible freeze or ANR. Matches the Dispatchers.IO pattern
+        // loadWaveform() already uses for its own blocking setup work.
+        var createdPlayer: MediaPlayer? = null
         previewJob = lifecycleScope.launch {
-            // Loops the region continuously (per the design spec) until stopPreview() cancels
-            // this job -- delay() is a cancellable suspension point, so cancellation unwinds the
-            // loop cleanly without needing the player to be touched after release().
-            //
-            // The inner wait is a do-while (always delay(100) at least once) rather than a
-            // while-condition: seekTo() is asynchronous, so right after re-seeking to the region
-            // start, player.currentPosition can still briefly report the stale pre-seek (past-end)
-            // value. A plain `while (currentPosition < endMs) delay(100)` would then evaluate false
-            // on entry and skip its own delay, so the outer loop immediately re-seeks/re-starts
-            // again -- a tight zero-delay spin on the Main dispatcher until the native position
-            // catches up.
-            while (true) {
-                do { delay(100) } while (player.currentPosition < region.endMs)
-                player.seekTo(region.startMs.toInt())
-                if (!player.isPlaying) player.start()
+            try {
+                withContext(Dispatchers.IO) {
+                    createdPlayer = MediaPlayer().apply {
+                        setDataSource(filePath)
+                        prepare()
+                        seekTo(region.startMs.toInt())
+                    }
+                }
+                val player = createdPlayer!!
+                previewPlayer = player
+                player.start()
+                // Loops the region continuously (per the design spec) until stopPreview() cancels
+                // this job -- delay() is a cancellable suspension point, so cancellation unwinds
+                // the loop cleanly without needing the player to be touched after release().
+                //
+                // The inner wait is a do-while (always delay(100) at least once) rather than a
+                // while-condition: seekTo() is asynchronous, so right after re-seeking to the
+                // region start, player.currentPosition can still briefly report the stale
+                // pre-seek (past-end) value. A plain `while (currentPosition < endMs) delay(100)`
+                // would then evaluate false on entry and skip its own delay, so the outer loop
+                // immediately re-seeks/re-starts again -- a tight zero-delay spin on the Main
+                // dispatcher until the native position catches up.
+                while (true) {
+                    do { delay(100) } while (player.currentPosition < region.endMs)
+                    player.seekTo(region.startMs.toInt())
+                    if (!player.isPlaying) player.start()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                showErrorDialog(e.message ?: "Couldn't play preview")
+            } finally {
+                // Either this job never got to publish itself as the active preview player (it was
+                // cancelled by a newer tap's stopPreview() while still preparing on IO, or
+                // setDataSource/prepare threw) -- in which case createdPlayer is orphaned and must
+                // be released here -- or it did, in which case stopPreview() owns releasing it via
+                // previewPlayer and this is a no-op.
+                if (previewPlayer !== createdPlayer) createdPlayer?.release()
             }
         }
     }
