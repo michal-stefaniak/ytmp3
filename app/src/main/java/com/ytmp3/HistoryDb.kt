@@ -99,8 +99,12 @@ class HistoryDb private constructor(context: Context) :
     }
 
     fun findByUrl(url: String): HistoryRecord? {
+        // 'SAMPLED' (set by markSampled() when the user deletes the source track after exporting
+        // samples from it) still means this URL was already downloaded -- it must keep matching
+        // here, or deleting the source after sampling silently disables dupe-check for that URL.
         readableDatabase.rawQuery(
-            "SELECT id,url,title,timestamp,status,kind,parentId,filePath FROM history WHERE url=? AND status='DONE' LIMIT 1",
+            "SELECT id,url,title,timestamp,status,kind,parentId,filePath FROM history " +
+                "WHERE url=? AND status IN ('DONE','SAMPLED') LIMIT 1",
             arrayOf(url)
         ).use { c ->
             if (!c.moveToFirst()) return null
