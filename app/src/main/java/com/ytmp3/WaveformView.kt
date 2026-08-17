@@ -118,10 +118,13 @@ class WaveformView @JvmOverloads constructor(
                     val idx = regions.indexOfFirst { it.id == region.id }
                     if (idx == -1) return@let
                     val current = regions[idx]
+                    // clampDraggedStart/End stop the dragged handle at its sibling handle instead of
+                    // letting RegionMarker.clamp see a start >= end and silently relocate the whole
+                    // region to a new short window elsewhere on the track.
                     val (clampedStart, clampedEnd) = if (isStart) {
-                        RegionMarker.clamp(newMs, current.endMs, trackDurationMs)
+                        RegionMarker.clampDraggedStart(newMs, current.endMs, trackDurationMs)
                     } else {
-                        RegionMarker.clamp(current.startMs, newMs, trackDurationMs)
+                        RegionMarker.clampDraggedEnd(newMs, current.startMs, trackDurationMs)
                     }
                     regions[idx] = current.copy(startMs = clampedStart, endMs = clampedEnd)
                     invalidate()
