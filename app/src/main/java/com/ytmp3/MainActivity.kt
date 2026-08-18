@@ -12,9 +12,11 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Toast
 import androidx.activity.viewModels
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -42,6 +44,18 @@ class MainActivity : AppCompatActivity() {
     // actually taken MainActivity out of the foreground (see the auto-open collector below).
     // Cleared on onResume() -- reached once the user returns from a previously opened editor.
     private var editorOpenInFlight = false
+
+    private val importAudio = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@registerForActivityResult
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+            // The editor still has the activity-granted read permission for this session. Some
+            // document providers simply don't offer persistable grants.
+        }
+        val title = DocumentFile.fromSingleUri(this, uri)?.name ?: "Imported audio"
+        openSampleEditor(uri.toString(), title, historyId = null)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,6 +106,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         b.btnClear.setOnClickListener { vm.clearCompleted() }
+        b.btnImportAudio.setOnClickListener { importAudio.launch(arrayOf("audio/*")) }
         b.btnSettings.setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         b.btnHistory.setOnClickListener { startActivity(Intent(this, HistoryActivity::class.java)) }
 

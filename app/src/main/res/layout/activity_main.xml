@@ -23,6 +23,14 @@
             android:textSize="18sp"
             android:textStyle="bold" />
         <Button
+            android:id="@+id/btn_import_audio"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Import"
+            android:textAllCaps="false"
+            android:backgroundTint="@android:color/transparent"
+            android:textColor="#AAAAAA" />
+        <Button
             android:id="@+id/btn_history"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
