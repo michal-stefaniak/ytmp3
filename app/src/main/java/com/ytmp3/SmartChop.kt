@@ -41,11 +41,15 @@ object SmartChop {
         if (envelope.isEmpty()) return emptyList()
         val duration = envelope.size * bucketDurationMs
         val boundaries = mutableListOf(0L)
+        var lastTransient: Long? = null
         var previous = envelope.first()
         envelope.drop(1).forEachIndexed { offset, value ->
-            val boundary = (offset + 2L) * bucketDurationMs
-            if (value - previous >= sensitivity && boundary - boundaries.last() >= minSpacingMs) {
+            val boundary = (offset + 1L) * bucketDurationMs
+            if (value - previous >= sensitivity &&
+                (lastTransient == null || boundary - lastTransient!! >= minSpacingMs)
+            ) {
                 boundaries += boundary
+                lastTransient = boundary
             }
             previous = value
         }
@@ -57,8 +61,15 @@ object SmartChop {
         require(durationMs >= 0) { "durationMs must not be negative" }
         require(bpm > 0f) { "bpm must be positive" }
         require(subdivision > 0) { "subdivision must be positive" }
-        val step = (60_000f / bpm / subdivision).toLong().coerceAtLeast(50)
-        return generateSequence(0L) { it + step }.takeWhile { it < durationMs }
-            .map { it to min(it + step, durationMs) }.toList()
+        val step = (60_000f / bpm / subdivision).toLong().coerceAtLeast(50L)
+        val regions = mutableListOf<Pair<Long, Long>>()
+        var start = 0L
+        while (start < durationMs) {
+            // Comparing the remaining duration first avoids overflowing start + step.
+            val end = if (step >= durationMs - start) durationMs else start + step
+            regions += start to end
+            start = end
+        }
+        return regions
     }
 }

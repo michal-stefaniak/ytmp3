@@ -81,12 +81,15 @@ object FFmpegBinary {
 
         suspendCancellableCoroutine { cont ->
             cont.invokeOnCancellation { process.destroy() }
+            var stderrText = ""
+            var stderrThread: Thread? = null
+            var bytesRead = 0L
+            var exitCode: Int? = null
+            var failure: Exception? = null
             try {
-                var stderrText = ""
-                val stderrThread = Thread {
+                stderrThread = Thread {
                     stderrText = process.errorStream.bufferedReader().readText()
                 }.apply { start() }
-                var bytesRead = 0L
                 val buffer = ByteArray(8 * 1024)
                 process.inputStream.use { input ->
                     while (true) {
@@ -98,15 +101,28 @@ object FFmpegBinary {
                         }
                     }
                 }
-                stderrThread.join()
-                val exitCode = process.waitFor()
-                if (cont.isActive) cont.resumeWith(
-                    Result.success(FFmpegStreamResult(exitCode, stderrText, bytesRead))
-                )
             } catch (e: Exception) {
+                failure = e
                 process.destroy()
-                if (cont.isActive) cont.resumeWith(Result.failure(e))
+            } finally {
+                // A callback can throw while ffmpeg is still writing. Stop it before joining the
+                // stderr reader so both pipes close; otherwise that reader may leak indefinitely.
+                if (failure != null || !cont.isActive) process.destroy()
+                try {
+                    stderrThread?.join()
+                    exitCode = process.waitFor()
+                } catch (e: Exception) {
+                    if (failure == null) failure = e
+                }
             }
+            if (!cont.isActive) return@suspendCancellableCoroutine
+            failure?.let { error ->
+                cont.resumeWith(
+                    Result.failure(IllegalStateException("ffmpeg stream failed: $stderrText", error))
+                )
+            } ?: cont.resumeWith(
+                Result.success(FFmpegStreamResult(exitCode ?: -1, stderrText, bytesRead))
+            )
         }
     }
 }

@@ -21,9 +21,17 @@ class SmartChopTest {
     @Test
     fun `transients respect minimum spacing`() {
         assertEquals(
-            listOf(0L to 200L, 200L to 400L),
+            listOf(0L to 100L, 100L to 300L, 300L to 400L),
             SmartChop.byTransients(listOf(0f, 1f, 0f, 1f), .5f, 150, 100)
         )
+    }
+
+    @Test
+    fun `grid ends safely at the largest duration`() {
+        val regions = SmartChop.byGrid(Long.MAX_VALUE, 0.00000000000001f, 1)
+
+        assertEquals(Long.MAX_VALUE, regions.last().second)
+        assertTrue(regions.all { it.second > it.first })
     }
 
     @Test
