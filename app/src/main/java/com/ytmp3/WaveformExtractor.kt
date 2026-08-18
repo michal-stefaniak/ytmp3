@@ -41,7 +41,7 @@ object WaveformExtractor {
             // Duration is derived from this same ffmpeg decode (sample count / sample rate) rather
             // than from a separate source like MediaMetadataRetriever. MediaMetadataRetriever is a
             // known source of inaccurate durations for MP3s carrying embedded thumbnail/metadata --
-            // which every download from this app has (--embed-thumbnail --embed-metadata) -- and
+            // which can otherwise confuse Android's metadata readers -- and
             // WaveformView derives its ms-per-peak-bucket from this duration while SampleExporter
             // cuts the real file with ffmpeg -ss/-to using the same ms values. Two unreconciled
             // duration sources would let those diverge silently, exporting a shifted slice of audio.

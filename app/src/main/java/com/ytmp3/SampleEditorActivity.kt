@@ -6,7 +6,6 @@ import android.os.Bundle
 import android.view.MenuItem
 import android.widget.PopupMenu
 import android.widget.Toast
-import androidx.documentfile.provider.DocumentFile
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -18,7 +17,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.UUID
 
 class SampleEditorActivity : AppCompatActivity() {
 
@@ -31,13 +29,12 @@ class SampleEditorActivity : AppCompatActivity() {
     }
 
     private lateinit var b: ActivitySampleEditorBinding
-    /** Original filesystem path or SAF document URI supplied by the download queue. */
+    /** Original filesystem path or SAF document URI selected by the user. */
     private lateinit var sourcePath: String
     /** Local source passed to ffmpeg and MediaPlayer; SAF documents are staged here. */
     private lateinit var workingFilePath: String
     private var stagedSourceFile: File? = null
     private lateinit var title: String
-    private var historyId: String? = null
     private var trackDurationMs: Long = 0
     private var previewJob: Job? = null
     private var previewPlayer: MediaPlayer? = null
@@ -54,9 +51,8 @@ class SampleEditorActivity : AppCompatActivity() {
         val project = intent.getStringExtra(EXTRA_PROJECT_ID)?.let(ProjectDb.get(this)::getProject)
         projectId = project?.id
         regionHistory = RegionHistory(project?.regions ?: emptyList())
-        sourcePath = project?.sourceUri ?: intent.getStringExtra("filePath") ?: run { finish(); return }
-        title = project?.title ?: intent.getStringExtra("title") ?: sourcePath.substringAfterLast('/')
-        historyId = intent.getStringExtra("historyId")
+        sourcePath = project?.sourceUri ?: run { finish(); return }
+        title = project.title
         b.tvEditorTitle.text = title
 
         b.waveform.setRegions(project?.regions.orEmpty().map { it.toMarker() })
@@ -147,8 +143,8 @@ class SampleEditorActivity : AppCompatActivity() {
             // cuts (which operate on the real file's own timescale), silently shifting every
             // exported region. It also avoids hard-gating the whole feature on
             // MediaMetadataRetriever successfully reporting a duration -- a known failure mode for
-            // MP3s with embedded thumbnail/metadata (which every download from this app has) that
-            // ffmpeg itself can often still decode fine.
+            // containers whose metadata does not expose a reliable duration even though ffmpeg
+            // can decode their audio.
             val result = runCatching {
                 workingFilePath = withContext(Dispatchers.IO) { stageSourceIfNeeded() }
                 WaveformExtractor.extract(this@SampleEditorActivity, workingFilePath).getOrThrow()
@@ -167,8 +163,8 @@ class SampleEditorActivity : AppCompatActivity() {
     }
 
     /**
-     * FFmpeg and MediaPlayer consume paths, whereas a user-selected download directory returns a
-     * SAF content URI. Stage only that URI into app cache; direct downloads continue to be read
+     * FFmpeg and MediaPlayer consume paths, whereas a user-selected document is often a SAF
+     * content URI. Stage only that URI into app cache; direct files continue to be read
      * in place. The temporary copy is removed in [onDestroy].
      */
     private fun stageSourceIfNeeded(): String {
@@ -266,71 +262,30 @@ class SampleEditorActivity : AppCompatActivity() {
         b.btnExport.isEnabled = false
         lifecycleScope.launch {
             try {
-                if (Prefs.storageWarn) {
-                    val estimatedBytes = regions.sumOf { (it.endMs - it.startMs) * 176L } // ~176 bytes/ms for 16-bit stereo 44.1kHz WAV
-                    // free == null means the destination's free space couldn't be determined (e.g.
-                    // the SAF provider doesn't expose it, or didn't answer in time) -- skip the
-                    // precheck rather than reporting a number from the wrong volume.
-                    val free = StorageUtil.availableBytes(
-                        this@SampleEditorActivity,
-                        Prefs.downloadDirUri,
-                        getExternalFilesDir(null) ?: cacheDir
-                    )
-                    if (free != null && free < estimatedBytes + 50L * 1024 * 1024) {
-                        showErrorDialog("Low storage: need ~${estimatedBytes / 1024 / 1024}MB free for WAV export")
-                        return@launch
-                    }
-                }
-
-                val exported = SampleExporter.export(this@SampleEditorActivity, workingFilePath, title, regions)
-                if (exported.isEmpty()) {
-                    showErrorDialog("Export failed for all regions")
-                    return@launch
-                }
-                val parentId = historyId ?: UUID.randomUUID().toString()
-                exported.forEach { sample ->
-                    HistoryDb.get(this@SampleEditorActivity).insertSample(
-                        id = UUID.randomUUID().toString(),
-                        url = "",
-                        title = "sample of $title",
-                        parentId = parentId,
-                        filePath = sample.filePath
+                val currentProjectId = projectId ?: return@launch
+                val db = ProjectDb.get(this@SampleEditorActivity)
+                regions.forEachIndexed { index, region ->
+                    db.upsertSample(
+                        SampleRecord(
+                            id = region.id,
+                            projectId = currentProjectId,
+                            regionId = region.id,
+                            startMs = region.startMs,
+                            endMs = region.endMs,
+                            outputUri = sourcePath,
+                            durationMs = region.endMs - region.startMs,
+                            format = "WAV",
+                            label = "${title.substringBeforeLast('.')} ${index + 1}"
+                        )
                     )
                 }
-                askKeepFullTrack()
+                Toast.makeText(this@SampleEditorActivity, "${regions.size} sample(s) added to your library", Toast.LENGTH_SHORT).show()
             } finally {
                 exporting = false
                 b.btnExport.isEnabled = true
             }
         }
     }
-
-    private fun askKeepFullTrack() {
-        AlertDialog.Builder(this)
-            .setTitle("Keep full track too?")
-            .setMessage("The full downloaded track can be deleted now that your samples are exported, or kept alongside them.")
-            .setPositiveButton("Keep") { _, _ -> finish() }
-            .setNegativeButton("Delete") { _, _ ->
-                if (deleteOriginalSource()) {
-                    historyId?.let {
-                        HistoryDb.get(this).markSampled(it)
-                        DownloadManager.removeItem(it)
-                    }
-                } else {
-                    showErrorDialog("Couldn't delete the full track; your exported samples are safe.")
-                }
-                finish()
-            }
-            .setCancelable(false)
-            .show()
-    }
-
-    private fun deleteOriginalSource(): Boolean =
-        if (sourcePath.startsWith("content://")) {
-            DocumentFile.fromSingleUri(this, Uri.parse(sourcePath))?.delete() == true
-        } else {
-            File(sourcePath).delete()
-        }
 
     private fun showErrorDialog(message: String, finishOnDismiss: Boolean = false) {
         AlertDialog.Builder(this)

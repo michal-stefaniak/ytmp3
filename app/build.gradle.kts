@@ -71,7 +71,6 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 
-    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
 
     testImplementation("junit:junit:4.13.2")

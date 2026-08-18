@@ -104,7 +104,7 @@
         android:layout_height="56dp"
         android:layout_margin="16dp"
         android:backgroundTint="#CC0000"
-        android:text="Export"
+            android:text="Add to library"
         android:textAllCaps="false"
         android:textColor="#FFFFFF"
         android:enabled="false" />

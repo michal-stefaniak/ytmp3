@@ -18,7 +18,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="YT MP3"
+            android:text="Sample Prep"
             android:textColor="#FFFFFF"
             android:textSize="18sp"
             android:textStyle="bold" />
@@ -38,107 +38,27 @@
             android:textAllCaps="false"
             android:backgroundTint="@android:color/transparent"
             android:textColor="#AAAAAA" />
-        <Button
-            android:id="@+id/btn_history"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="History"
-            android:textAllCaps="false"
-            android:backgroundTint="@android:color/transparent"
-            android:textColor="#AAAAAA" />
-        <Button
-            android:id="@+id/btn_settings"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Settings"
-            android:textAllCaps="false"
-            android:backgroundTint="@android:color/transparent"
-            android:textColor="#AAAAAA" />
     </LinearLayout>
-
-    <EditText
-        android:id="@+id/et_urls"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="#111111"
-        android:gravity="top"
-        android:hint="Paste URLs here, one per line"
-        android:inputType="textMultiLine"
-        android:padding="16dp"
-        android:textColor="#FFFFFF"
-        android:textColorHint="#555555"
-        android:textSize="13sp" />
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:orientation="vertical"
+        android:gravity="center"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:paddingTop="8dp"
         android:background="#0D0D0D"
     android:fitsSystemWindows="true">
 
-        <CheckBox
-            android:id="@+id/cb_trim"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Trim audio"
-            android:textColor="#AAAAAA"
-            android:textSize="13sp"
-            android:buttonTint="#CC0000" />
-
-        <LinearLayout
-            android:id="@+id/ll_trim_fields"
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingTop="4dp"
-            android:paddingBottom="8dp"
-            android:visibility="gone">
-            <EditText
-                android:id="@+id/et_trim_start"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1"
-                android:hint="0:00"
-                android:inputType="text"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#555555"
-                android:background="#1A1A1A"
-                android:padding="8dp"
-                android:textSize="13sp" />
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" to "
-                android:textColor="#666666"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp" />
-            <EditText
-                android:id="@+id/et_trim_end"
-                android:layout_width="0dp"
-                android:layout_height="40dp"
-                android:layout_weight="1"
-                android:hint="end"
-                android:inputType="text"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#555555"
-                android:background="#1A1A1A"
-                android:padding="8dp"
-                android:textSize="13sp" />
-        </LinearLayout>
-
-        <CheckBox
-            android:id="@+id/cb_sample_mode"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Sample mode (waveform chop editor)"
+            android:gravity="center"
+            android:text="Import local audio to chop, organise, and export your own sample packs."
             android:textColor="#AAAAAA"
-            android:textSize="13sp"
-            android:buttonTint="#CC0000" />
+            android:textSize="15sp" />
     </LinearLayout>
 
     <LinearLayout
@@ -150,33 +70,24 @@
         android:paddingTop="8dp"
         android:paddingBottom="8dp">
         <Button
-            android:id="@+id/btn_download"
+            android:id="@+id/btn_import_audio_main"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="3"
             android:layout_marginEnd="8dp"
             android:backgroundTint="#CC0000"
-            android:text="Download"
+            android:text="Import audio"
             android:textAllCaps="false"
             android:textColor="#FFFFFF" />
         <Button
-            android:id="@+id/btn_clear"
+            android:id="@+id/btn_open_library"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:backgroundTint="#1A1A1A"
-            android:text="Clear"
+            android:text="Library"
             android:textAllCaps="false"
             android:textColor="#AAAAAA" />
     </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rv_downloads"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="2"
-        android:clipToPadding="false"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp" />
 
 </LinearLayout>
