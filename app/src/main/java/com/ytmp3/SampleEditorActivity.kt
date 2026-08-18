@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.MenuItem
 import android.widget.PopupMenu
+import android.widget.Toast
 import androidx.documentfile.provider.DocumentFile
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -86,7 +87,11 @@ class SampleEditorActivity : AppCompatActivity() {
         val regions = when (item.itemId) {
             MODE_SILENCE -> SmartChop.bySilence(envelope(), .05f, 200L, peakDurationMs())
             MODE_TRANSIENTS -> SmartChop.byTransients(envelope(), .18f, 100L, peakDurationMs())
-            MODE_GRID -> bpmOrNull()?.let { SmartChop.byGrid(trackDurationMs, it, GRID_SUBDIVISION) }.orEmpty()
+            MODE_GRID -> bpmOrNull()?.let { SmartChop.byGrid(trackDurationMs, it, GRID_SUBDIVISION) }
+                ?: run {
+                    Toast.makeText(this, "Enter a valid BPM before using beat-grid chop", Toast.LENGTH_SHORT).show()
+                    return true
+                }
             else -> return false
         }.map { (start, end) -> SampleRegion(startMs = start, endMs = end) }
         commitRegions(regions)
@@ -104,12 +109,14 @@ class SampleEditorActivity : AppCompatActivity() {
     private fun peakDurationMs(): Long =
         (trackDurationMs / b.waveform.currentPeaks().size.coerceAtLeast(1)).coerceAtLeast(1L)
 
-    private fun bpmOrNull(): Float? = b.inputBpm.text.toString().toFloatOrNull()?.takeIf { it > 0f }
+    private fun bpmOrNull(): Float? = b.inputBpm.text.toString().toFloatOrNull()
+        ?.takeIf { it.isFinite() && it > 0f }
 
     private fun commitRegions(regions: List<SampleRegion>) {
         val ordered = regions.sortedBy { it.startMs }
         if (!SampleRegion.validateOrdered(ordered)) return
         regionHistory.push(ordered)
+        b.waveform.setRegions(ordered.map { it.toMarker() })
         projectId?.let { ProjectDb.get(this).saveRegions(it, ordered) }
         updateRegionControls(ordered)
     }
