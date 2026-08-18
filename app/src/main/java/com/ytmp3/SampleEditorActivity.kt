@@ -3,6 +3,8 @@ package com.ytmp3
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
+import android.view.MenuItem
+import android.widget.PopupMenu
 import androidx.documentfile.provider.DocumentFile
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -21,6 +23,10 @@ class SampleEditorActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_PROJECT_ID = "projectId"
+        private const val MODE_SILENCE = 1
+        private const val MODE_TRANSIENTS = 2
+        private const val MODE_GRID = 3
+        private const val GRID_SUBDIVISION = 4
     }
 
     private lateinit var b: ActivitySampleEditorBinding
@@ -36,6 +42,8 @@ class SampleEditorActivity : AppCompatActivity() {
     private var previewPlayer: MediaPlayer? = null
     private var previewRegionId: String? = null
     private var exporting = false
+    private var projectId: String? = null
+    private lateinit var regionHistory: RegionHistory
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,17 +51,84 @@ class SampleEditorActivity : AppCompatActivity() {
         setContentView(b.root)
 
         val project = intent.getStringExtra(EXTRA_PROJECT_ID)?.let(ProjectDb.get(this)::getProject)
+        projectId = project?.id
+        regionHistory = RegionHistory(project?.regions ?: emptyList())
         sourcePath = project?.sourceUri ?: intent.getStringExtra("filePath") ?: run { finish(); return }
         title = project?.title ?: intent.getStringExtra("title") ?: sourcePath.substringAfterLast('/')
         historyId = intent.getStringExtra("historyId")
         b.tvEditorTitle.text = title
 
-        b.waveform.onRegionsChanged = { regions -> b.btnExport.isEnabled = regions.isNotEmpty() && !exporting }
+        b.waveform.setRegions(project?.regions.orEmpty().map { it.toMarker() })
+        b.waveform.onRegionsChanged = { regions -> commitRegions(regions.map { it.toSampleRegion() }) }
         b.waveform.onRegionTapped = { region -> previewRegion(region) }
         b.btnExport.setOnClickListener { exportRegions() }
+        b.btnSmartChop.setOnClickListener { showSmartChopMenu() }
+        b.btnUndo.setOnClickListener { restoreHistory(regionHistory.undo()) }
+        b.btnRedo.setOnClickListener { restoreHistory(regionHistory.redo()) }
+        b.btnShowGrid.setOnClickListener { showBeatGrid() }
+        updateRegionControls(regionHistory.current())
 
         loadWaveform()
     }
+
+    private fun showSmartChopMenu() {
+        PopupMenu(this, b.btnSmartChop).apply {
+            menu.add(0, MODE_SILENCE, 0, "Silence")
+            menu.add(0, MODE_TRANSIENTS, 1, "Transients")
+            menu.add(0, MODE_GRID, 2, "Beat grid")
+            setOnMenuItemClickListener(::applySmartChop)
+            show()
+        }
+    }
+
+    private fun applySmartChop(item: MenuItem): Boolean {
+        if (trackDurationMs <= 0) return true
+        val regions = when (item.itemId) {
+            MODE_SILENCE -> SmartChop.bySilence(envelope(), .05f, 200L, peakDurationMs())
+            MODE_TRANSIENTS -> SmartChop.byTransients(envelope(), .18f, 100L, peakDurationMs())
+            MODE_GRID -> bpmOrNull()?.let { SmartChop.byGrid(trackDurationMs, it, GRID_SUBDIVISION) }.orEmpty()
+            else -> return false
+        }.map { (start, end) -> SampleRegion(startMs = start, endMs = end) }
+        commitRegions(regions)
+        return true
+    }
+
+    private fun showBeatGrid() {
+        b.waveform.setBeatGrid(bpmOrNull(), GRID_SUBDIVISION)
+    }
+
+    private fun envelope(): List<Float> = b.waveform.currentPeaks().map { peak ->
+        maxOf(kotlin.math.abs(peak.min.toInt()), kotlin.math.abs(peak.max.toInt())) / Short.MAX_VALUE.toFloat()
+    }
+
+    private fun peakDurationMs(): Long =
+        (trackDurationMs / b.waveform.currentPeaks().size.coerceAtLeast(1)).coerceAtLeast(1L)
+
+    private fun bpmOrNull(): Float? = b.inputBpm.text.toString().toFloatOrNull()?.takeIf { it > 0f }
+
+    private fun commitRegions(regions: List<SampleRegion>) {
+        val ordered = regions.sortedBy { it.startMs }
+        if (!SampleRegion.validateOrdered(ordered)) return
+        regionHistory.push(ordered)
+        projectId?.let { ProjectDb.get(this).saveRegions(it, ordered) }
+        updateRegionControls(ordered)
+    }
+
+    private fun restoreHistory(regions: List<SampleRegion>) {
+        b.waveform.setRegions(regions.map { it.toMarker() })
+        projectId?.let { ProjectDb.get(this).saveRegions(it, regions) }
+        updateRegionControls(regions)
+    }
+
+    private fun updateRegionControls(regions: List<SampleRegion>) {
+        b.btnExport.isEnabled = regions.isNotEmpty() && !exporting
+        b.btnUndo.isEnabled = regionHistory.canUndo()
+        b.btnRedo.isEnabled = regionHistory.canRedo()
+    }
+
+    private fun SampleRegion.toMarker() = RegionMarker(id = id, startMs = startMs, endMs = endMs)
+
+    private fun RegionMarker.toSampleRegion() = SampleRegion(id = id, startMs = startMs, endMs = endMs)
 
     private fun loadWaveform() {
         b.progressExtracting.visibility = android.view.View.VISIBLE
@@ -77,6 +152,7 @@ class SampleEditorActivity : AppCompatActivity() {
                     trackDurationMs = data.durationMs
                     b.waveform.visibility = android.view.View.VISIBLE
                     b.waveform.setPeaks(data.peaks, trackDurationMs)
+                    b.waveform.setBeatGrid(bpmOrNull(), GRID_SUBDIVISION)
                 },
                 onFailure = { showErrorDialog(it.message ?: "Failed to read audio", finishOnDismiss = true) }
             )

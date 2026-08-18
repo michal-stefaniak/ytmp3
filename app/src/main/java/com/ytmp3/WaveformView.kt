@@ -30,10 +30,13 @@ class WaveformView @JvmOverloads constructor(
     private var draggingHandle: Pair<RegionMarker, Boolean>? = null // region, isStartHandle
     private var pendingRegionStartMs: Long? = null
     private var pendingRegionEndMs: Long? = null
+    private var beatGridBpm: Float? = null
+    private var beatGridSubdivision: Int = 4
 
     private val wavePaint = Paint().apply { color = Color.parseColor("#CC0000"); strokeWidth = 2f }
     private val regionPaint = Paint().apply { color = Color.parseColor("#55CC0000") }
     private val handlePaint = Paint().apply { color = Color.parseColor("#FFFFFF"); strokeWidth = 6f }
+    private val gridPaint = Paint().apply { color = Color.parseColor("#3355AAFF"); strokeWidth = 1f }
     private val bgPaint = Paint().apply { color = Color.parseColor("#111111") }
 
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -92,6 +95,15 @@ class WaveformView @JvmOverloads constructor(
     }
 
     fun currentRegions(): List<RegionMarker> = regions.toList()
+
+    fun currentPeaks(): List<PeakMath.PeakBucket> = peaks
+
+    /** Draws beat guides only; it never changes the source waveform or region boundaries. */
+    fun setBeatGrid(bpm: Float?, subdivision: Int = 4) {
+        beatGridBpm = bpm?.takeIf { it > 0f }
+        beatGridSubdivision = subdivision.coerceAtLeast(1)
+        invalidate()
+    }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -207,6 +219,19 @@ class WaveformView @JvmOverloads constructor(
             val bucket = peaks[i]
             val x = msToX((i * msPerBucket).toLong())
             canvas.drawLine(x, midY - bucket.max * scaleY, x, midY - bucket.min * scaleY, wavePaint)
+        }
+
+        beatGridBpm?.let { bpm ->
+            val stepMs = (60_000f / bpm / beatGridSubdivision).toLong().coerceAtLeast(1L)
+            val firstGridMs = (scrollOffsetMs.toLong() / stepMs) * stepMs
+            val visibleEndMs = (scrollOffsetMs + width * msPerPx).toLong()
+            var gridMs = firstGridMs
+            while (gridMs <= visibleEndMs && gridMs <= trackDurationMs) {
+                val x = msToX(gridMs)
+                canvas.drawLine(x, 0f, x, height.toFloat(), gridPaint)
+                if (Long.MAX_VALUE - gridMs < stepMs) break
+                gridMs += stepMs
+            }
         }
 
         for (region in regions) {
