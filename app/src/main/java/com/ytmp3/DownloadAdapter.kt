@@ -37,8 +37,7 @@ class DownloadAdapter(
             b.progress.visibility = if (item.status == DownloadStatus.DONE) View.INVISIBLE else View.VISIBLE
             b.btnRetry.visibility = if (item.status == DownloadStatus.ERROR) View.VISIBLE else View.GONE
             b.btnRetry.setOnClickListener { onRetry(item.id) }
-            val isEditable = item.status == DownloadStatus.DONE &&
-                item.filePath != null && !item.filePath.startsWith("content://")
+            val isEditable = item.status == DownloadStatus.DONE && item.filePath != null
             b.btnEditSample.visibility = if (isEditable) View.VISIBLE else View.GONE
             b.btnEditSample.setOnClickListener { onEditClick(item) }
             b.root.setOnClickListener {

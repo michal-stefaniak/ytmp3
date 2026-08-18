@@ -1,7 +1,9 @@
 package com.ytmp3
 
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Bundle
+import androidx.documentfile.provider.DocumentFile
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -18,7 +20,11 @@ import java.util.UUID
 class SampleEditorActivity : AppCompatActivity() {
 
     private lateinit var b: ActivitySampleEditorBinding
-    private lateinit var filePath: String
+    /** Original filesystem path or SAF document URI supplied by the download queue. */
+    private lateinit var sourcePath: String
+    /** Local source passed to ffmpeg and MediaPlayer; SAF documents are staged here. */
+    private lateinit var workingFilePath: String
+    private var stagedSourceFile: File? = null
     private lateinit var title: String
     private var historyId: String? = null
     private var trackDurationMs: Long = 0
@@ -31,8 +37,8 @@ class SampleEditorActivity : AppCompatActivity() {
         b = ActivitySampleEditorBinding.inflate(layoutInflater)
         setContentView(b.root)
 
-        filePath = intent.getStringExtra("filePath") ?: run { finish(); return }
-        title = intent.getStringExtra("title") ?: filePath.substringAfterLast('/')
+        sourcePath = intent.getStringExtra("filePath") ?: run { finish(); return }
+        title = intent.getStringExtra("title") ?: sourcePath.substringAfterLast('/')
         historyId = intent.getStringExtra("historyId")
         b.tvEditorTitle.text = title
 
@@ -55,7 +61,10 @@ class SampleEditorActivity : AppCompatActivity() {
             // MediaMetadataRetriever successfully reporting a duration -- a known failure mode for
             // MP3s with embedded thumbnail/metadata (which every download from this app has) that
             // ffmpeg itself can often still decode fine.
-            val result = WaveformExtractor.extract(this@SampleEditorActivity, filePath)
+            val result = runCatching {
+                workingFilePath = withContext(Dispatchers.IO) { stageSourceIfNeeded() }
+                WaveformExtractor.extract(this@SampleEditorActivity, workingFilePath).getOrThrow()
+            }
             b.progressExtracting.visibility = android.view.View.GONE
             result.fold(
                 onSuccess = { data ->
@@ -65,6 +74,26 @@ class SampleEditorActivity : AppCompatActivity() {
                 },
                 onFailure = { showErrorDialog(it.message ?: "Failed to read audio", finishOnDismiss = true) }
             )
+        }
+    }
+
+    /**
+     * FFmpeg and MediaPlayer consume paths, whereas a user-selected download directory returns a
+     * SAF content URI. Stage only that URI into app cache; direct downloads continue to be read
+     * in place. The temporary copy is removed in [onDestroy].
+     */
+    private fun stageSourceIfNeeded(): String {
+        if (!sourcePath.startsWith("content://")) return sourcePath
+        val staged = File.createTempFile("sample_source_", ".audio", cacheDir)
+        try {
+            contentResolver.openInputStream(Uri.parse(sourcePath))?.use { input ->
+                staged.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw IllegalStateException("Couldn't read selected audio file")
+            stagedSourceFile = staged
+            return staged.absolutePath
+        } catch (e: Exception) {
+            staged.delete()
+            throw e
         }
     }
 
@@ -79,7 +108,7 @@ class SampleEditorActivity : AppCompatActivity() {
             try {
                 withContext(Dispatchers.IO) {
                     createdPlayer = MediaPlayer().apply {
-                        setDataSource(filePath)
+                        setDataSource(workingFilePath)
                         prepare()
                         seekTo(region.startMs.toInt())
                     }
@@ -150,7 +179,7 @@ class SampleEditorActivity : AppCompatActivity() {
                     }
                 }
 
-                val exported = SampleExporter.export(this@SampleEditorActivity, filePath, title, regions)
+                val exported = SampleExporter.export(this@SampleEditorActivity, workingFilePath, title, regions)
                 if (exported.isEmpty()) {
                     showErrorDialog("Export failed for all regions")
                     return@launch
@@ -179,16 +208,26 @@ class SampleEditorActivity : AppCompatActivity() {
             .setMessage("The full downloaded track can be deleted now that your samples are exported, or kept alongside them.")
             .setPositiveButton("Keep") { _, _ -> finish() }
             .setNegativeButton("Delete") { _, _ ->
-                File(filePath).delete()
-                historyId?.let {
-                    HistoryDb.get(this).markSampled(it)
-                    DownloadManager.removeItem(it)
+                if (deleteOriginalSource()) {
+                    historyId?.let {
+                        HistoryDb.get(this).markSampled(it)
+                        DownloadManager.removeItem(it)
+                    }
+                } else {
+                    showErrorDialog("Couldn't delete the full track; your exported samples are safe.")
                 }
                 finish()
             }
             .setCancelable(false)
             .show()
     }
+
+    private fun deleteOriginalSource(): Boolean =
+        if (sourcePath.startsWith("content://")) {
+            DocumentFile.fromSingleUri(this, Uri.parse(sourcePath))?.delete() == true
+        } else {
+            File(sourcePath).delete()
+        }
 
     private fun showErrorDialog(message: String, finishOnDismiss: Boolean = false) {
         AlertDialog.Builder(this)
@@ -207,6 +246,8 @@ class SampleEditorActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         stopPreview()
+        stagedSourceFile?.delete()
+        stagedSourceFile = null
         super.onDestroy()
     }
 }

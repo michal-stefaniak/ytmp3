@@ -116,7 +116,7 @@ class MainActivity : AppCompatActivity() {
                     if (editorOpenInFlight) return@collect
                     val toOpen = items.firstOrNull { item ->
                         item.sampleMode && item.status == DownloadStatus.DONE &&
-                            item.filePath != null && !item.filePath.startsWith("content://") &&
+                            item.filePath != null &&
                             !vm.hasAutoOpened(item.id)
                     }
                     if (toOpen?.filePath != null && vm.markAutoOpened(toOpen.id)) {
