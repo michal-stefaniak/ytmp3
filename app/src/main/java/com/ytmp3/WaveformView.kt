@@ -65,7 +65,17 @@ class WaveformView @JvmOverloads constructor(
 
         override fun onLongPress(e: MotionEvent) {
             if (draggingHandle != null) return
-            pendingRegionStartMs = xToMs(e.x)
+            val pressMs = xToMs(e.x)
+            // Long-pressing an existing region is the unobtrusive delete gesture. A long press
+            // in empty waveform space continues into the normal draw-a-region interaction.
+            val existing = regions.firstOrNull { pressMs in it.startMs..it.endMs }
+            if (existing != null) {
+                regions.removeAll { it.id == existing.id }
+                onRegionsChanged?.invoke(regions.toList())
+                invalidate()
+            } else {
+                pendingRegionStartMs = pressMs
+            }
         }
     })
 

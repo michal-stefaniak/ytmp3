@@ -37,7 +37,7 @@
         android:padding="12dp"
         android:textColor="#AAAAAA"
         android:textSize="12sp"
-        android:text="Long-press and drag on the waveform to create a region. Tap a region to preview it." />
+        android:text="Long-press and drag on empty waveform to create a region. Tap to preview; long-press a region to remove it." />
 
     <Button
         android:id="@+id/btn_export"
