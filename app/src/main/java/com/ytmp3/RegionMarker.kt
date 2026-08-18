@@ -36,17 +36,33 @@ data class RegionMarker(
             newStartMs: Long,
             siblingEndMs: Long,
             trackDurationMs: Long,
+            lowerBoundMs: Long = 0,
             minLengthMs: Long = MIN_LENGTH_MS
         ): Pair<Long, Long> =
-            clamp(newStartMs.coerceAtMost(siblingEndMs - minLengthMs), siblingEndMs, trackDurationMs, minLengthMs)
+            clamp(
+                newStartMs.coerceIn(lowerBoundMs, siblingEndMs - minLengthMs),
+                siblingEndMs,
+                trackDurationMs,
+                minLengthMs
+            )
 
         /** Same as [clampDraggedStart], but for a dragged end handle relative to its sibling start. */
         fun clampDraggedEnd(
             newEndMs: Long,
             siblingStartMs: Long,
             trackDurationMs: Long,
+            upperBoundMs: Long = trackDurationMs,
             minLengthMs: Long = MIN_LENGTH_MS
         ): Pair<Long, Long> =
-            clamp(siblingStartMs, newEndMs.coerceAtLeast(siblingStartMs + minLengthMs), trackDurationMs, minLengthMs)
+            clamp(
+                siblingStartMs,
+                newEndMs.coerceIn(siblingStartMs + minLengthMs, upperBoundMs),
+                trackDurationMs,
+                minLengthMs
+            )
+
+        /** Returns whether two regions overlap; touching handles are allowed. */
+        fun overlaps(aStartMs: Long, aEndMs: Long, bStartMs: Long, bEndMs: Long): Boolean =
+            aStartMs < bEndMs && bStartMs < aEndMs
     }
 }

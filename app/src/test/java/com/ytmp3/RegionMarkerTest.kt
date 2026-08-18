@@ -61,4 +61,34 @@ class RegionMarkerTest {
         assertEquals(1000L, start)
         assertEquals(8000L, end)
     }
+
+    @Test
+    fun `dragging start handle cannot cross the preceding region`() {
+        val (start, end) = RegionMarker.clampDraggedStart(
+            newStartMs = 500,
+            siblingEndMs = 5000,
+            trackDurationMs = 60_000,
+            lowerBoundMs = 2000
+        )
+        assertEquals(2000L, start)
+        assertEquals(5000L, end)
+    }
+
+    @Test
+    fun `dragging end handle cannot cross the following region`() {
+        val (start, end) = RegionMarker.clampDraggedEnd(
+            newEndMs = 9000,
+            siblingStartMs = 1000,
+            trackDurationMs = 60_000,
+            upperBoundMs = 6000
+        )
+        assertEquals(1000L, start)
+        assertEquals(6000L, end)
+    }
+
+    @Test
+    fun `touching regions do not overlap but intersecting regions do`() {
+        assertEquals(false, RegionMarker.overlaps(1000, 2000, 2000, 3000))
+        assertEquals(true, RegionMarker.overlaps(1000, 2001, 2000, 3000))
+    }
 }

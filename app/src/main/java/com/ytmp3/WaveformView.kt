@@ -118,13 +118,17 @@ class WaveformView @JvmOverloads constructor(
                     val idx = regions.indexOfFirst { it.id == region.id }
                     if (idx == -1) return@let
                     val current = regions[idx]
+                    val ordered = regions.sortedBy { it.startMs }
+                    val orderedIndex = ordered.indexOfFirst { it.id == current.id }
+                    val previousEnd = ordered.getOrNull(orderedIndex - 1)?.endMs ?: 0L
+                    val nextStart = ordered.getOrNull(orderedIndex + 1)?.startMs ?: trackDurationMs
                     // clampDraggedStart/End stop the dragged handle at its sibling handle instead of
                     // letting RegionMarker.clamp see a start >= end and silently relocate the whole
                     // region to a new short window elsewhere on the track.
                     val (clampedStart, clampedEnd) = if (isStart) {
-                        RegionMarker.clampDraggedStart(newMs, current.endMs, trackDurationMs)
+                        RegionMarker.clampDraggedStart(newMs, current.endMs, trackDurationMs, previousEnd)
                     } else {
-                        RegionMarker.clampDraggedEnd(newMs, current.startMs, trackDurationMs)
+                        RegionMarker.clampDraggedEnd(newMs, current.startMs, trackDurationMs, nextStart)
                     }
                     regions[idx] = current.copy(startMs = clampedStart, endMs = clampedEnd)
                     invalidate()
@@ -142,8 +146,14 @@ class WaveformView @JvmOverloads constructor(
                 pendingRegionStartMs?.let { startMs ->
                     val endMs = pendingRegionEndMs ?: startMs
                     val (s, e) = RegionMarker.clamp(min(startMs, endMs), max(startMs, endMs), trackDurationMs)
-                    regions.add(RegionMarker(startMs = s, endMs = e))
-                    onRegionsChanged?.invoke(regions.toList())
+                    // A region may meet another region at a handle, but may not overlap it.  This
+                    // keeps the editor's temporal ordering stable and makes neighbouring drag
+                    // bounds meaningful.
+                    if (regions.none { RegionMarker.overlaps(s, e, it.startMs, it.endMs) }) {
+                        regions.add(RegionMarker(startMs = s, endMs = e))
+                        regions.sortBy { it.startMs }
+                        onRegionsChanged?.invoke(regions.toList())
+                    }
                 }
                 pendingRegionStartMs = null
                 pendingRegionEndMs = null
