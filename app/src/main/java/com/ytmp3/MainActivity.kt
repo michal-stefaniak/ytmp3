@@ -103,6 +103,7 @@ class MainActivity : AppCompatActivity() {
         b.btnImportAudio.setOnClickListener { importAudio.launch(arrayOf("audio/*")) }
         b.btnSettings.setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         b.btnHistory.setOnClickListener { startActivity(Intent(this, HistoryActivity::class.java)) }
+        b.btnLibrary.setOnClickListener { startActivity(Intent(this, LibraryActivity::class.java)) }
 
         lifecycleScope.launch {
             // repeatOnLifecycle(STARTED) stops this collector while MainActivity is
