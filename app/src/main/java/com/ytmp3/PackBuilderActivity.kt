@@ -131,8 +131,8 @@ class PackBuilderActivity : AppCompatActivity() {
                 WorkInfo.State.SUCCEEDED -> {
                     binding.btnExportPack.isEnabled = true
                     binding.tvExportProgress.text = "Export complete"
-                    info.outputData.getString(PackExportWorker.OUTPUT_URI)?.let { output ->
-                        shareOutput(output, info.outputData.getBoolean(PackExportWorker.OUTPUT_IS_ZIP, false))
+                    if (info.outputData.getBoolean(PackExportWorker.OUTPUT_IS_ZIP, false)) {
+                        info.outputData.getString(PackExportWorker.OUTPUT_URI)?.let(::shareZip)
                     }
                 }
                 WorkInfo.State.FAILED -> {
@@ -144,10 +144,10 @@ class PackBuilderActivity : AppCompatActivity() {
         }
     }
 
-    private fun shareOutput(output: String, isZip: Boolean) {
+    private fun shareZip(output: String) {
         val uri = Uri.parse(output)
         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-            type = if (isZip) "application/zip" else "application/octet-stream"
+            type = "application/zip"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }, "Share sample pack"))

@@ -12,6 +12,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -30,7 +31,7 @@ class PackExportWorker(context: Context, params: WorkerParameters) : CoroutineWo
         private const val NOTIFICATION_ID = 4106
     }
 
-    override suspend fun doWork(): Result = runCatching {
+    override suspend fun doWork(): Result = try {
         setForeground(createForegroundInfo("Preparing pack export"))
         val packId = inputData.getString(INPUT_PACK_ID) ?: error("Missing pack")
         val destinationUri = inputData.getString(INPUT_DESTINATION_URI) ?: error("Missing destination")
@@ -51,6 +52,9 @@ class PackExportWorker(context: Context, params: WorkerParameters) : CoroutineWo
             val usedSampleNames = mutableSetOf<String>()
             val rendered = ordered.mapIndexed { index, sample ->
                 val project = projects[sample.projectId]
+                    ?: error("Sample project is missing")
+                val region = project.regions.firstOrNull { it.id == sample.regionId }
+                val recipe = region?.recipe ?: ProcessingRecipe()
                 val baseName = safeName(filenameTemplate.render(
                     sample.label.ifBlank { "Sample" }, index + 1, project?.bpmOverride ?: project?.bpmEstimate, project?.keyEstimate
                 )).ifBlank { "Sample_${"%02d".format(index + 1)}" }
@@ -58,7 +62,8 @@ class PackExportWorker(context: Context, params: WorkerParameters) : CoroutineWo
                 usedSampleNames += name
                 val target = File(tempDir, name)
                 check(SampleExporter.renderPackSample(
-                    applicationContext, sample.outputUri, target, pack.format, pack.sampleRateHz, pack.bitDepth
+                    applicationContext, project.sourceUri, target, sample.startMs, sample.endMs, recipe,
+                    pack.format, pack.sampleRateHz, pack.bitDepth
                 )) { "Couldn't render ${sample.label.ifBlank { "sample ${index + 1}" }}" }
                 setProgress(workDataOf(PROGRESS_COMPLETED to index + 1, PROGRESS_TOTAL to ordered.size))
                 setForeground(createForegroundInfo("Exporting ${index + 1} of ${ordered.size}"))
@@ -69,7 +74,9 @@ class PackExportWorker(context: Context, params: WorkerParameters) : CoroutineWo
         } finally {
             tempDir.deleteRecursively()
         }
-    }.getOrElse { error ->
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
         Result.failure(workDataOf(OUTPUT_ERROR to (error.message ?: "Export failed")))
     }
 
