@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 data class FFmpegResult(val exitCode: Int, val stdout: ByteArray, val stderr: String)
+data class FFmpegStreamResult(val exitCode: Int, val stderr: String, val bytesRead: Long)
 
 object FFmpegBinary {
 
@@ -63,6 +64,48 @@ object FFmpegBinary {
                 cont.resumeWith(Result.success(FFmpegResult(exitCode, stdout, stderrText)))
             } catch (e: Exception) {
                 cont.resumeWith(Result.failure(e))
+            }
+        }
+    }
+
+    /** Streams ffmpeg stdout on Dispatchers.IO while stderr is drained concurrently. */
+    suspend fun streamPcm(
+        context: Context,
+        args: List<String>,
+        onChunk: (bytes: ByteArray, offset: Int, length: Int) -> Unit
+    ): FFmpegStreamResult = withContext(Dispatchers.IO) {
+        val command = mutableListOf(binaryPath(context)).apply { addAll(args) }
+        val process = ProcessBuilder(command)
+            .apply { environment()["LD_LIBRARY_PATH"] = ldLibraryPath(context) }
+            .start()
+
+        suspendCancellableCoroutine { cont ->
+            cont.invokeOnCancellation { process.destroy() }
+            try {
+                var stderrText = ""
+                val stderrThread = Thread {
+                    stderrText = process.errorStream.bufferedReader().readText()
+                }.apply { start() }
+                var bytesRead = 0L
+                val buffer = ByteArray(8 * 1024)
+                process.inputStream.use { input ->
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        if (read > 0) {
+                            onChunk(buffer, 0, read)
+                            bytesRead += read
+                        }
+                    }
+                }
+                stderrThread.join()
+                val exitCode = process.waitFor()
+                if (cont.isActive) cont.resumeWith(
+                    Result.success(FFmpegStreamResult(exitCode, stderrText, bytesRead))
+                )
+            } catch (e: Exception) {
+                process.destroy()
+                if (cont.isActive) cont.resumeWith(Result.failure(e))
             }
         }
     }
