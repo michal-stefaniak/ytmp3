@@ -75,4 +75,47 @@ object SampleExporter {
         } ?: false
         return if (written) dest.uri.toString() else null
     }
+
+    /** Renders a locally imported sample for pack export. The original is never modified. */
+    suspend fun renderPackSample(
+        context: Context,
+        source: String,
+        destination: File,
+        format: String,
+        sampleRateHz: Int,
+        bitDepth: Int
+    ): Boolean = withContext(Dispatchers.IO) {
+        val stagedSource = stageLocalSource(context, source)
+        try {
+            val codec = when (format.uppercase()) {
+                "WAV" -> if (bitDepth >= 24) "pcm_s24le" else "pcm_s16le"
+                "FLAC" -> "flac"
+                else -> return@withContext false
+            }
+            val result = FFmpegBinary.run(
+                context,
+                listOf(
+                    "-n", "-i", stagedSource.absolutePath,
+                    "-ar", sampleRateHz.toString(),
+                    "-c:a", codec,
+                    destination.absolutePath
+                )
+            )
+            result.exitCode == 0 && destination.isFile && destination.length() > 0
+        } finally {
+            if (Uri.parse(source).scheme == "content") stagedSource.delete()
+        }
+    }
+
+    private fun stageLocalSource(context: Context, source: String): File {
+        val direct = File(source)
+        if (direct.isFile) return direct
+        val uri = Uri.parse(source)
+        require(uri.scheme == "content") { "Sample source is unavailable" }
+        return File.createTempFile("pack_source_", ".audio", context.cacheDir).also { staged ->
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                staged.outputStream().use { input.copyTo(it) }
+            } ?: throw IllegalStateException("Couldn't open sample source")
+        }
+    }
 }
