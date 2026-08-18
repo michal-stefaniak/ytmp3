@@ -136,6 +136,8 @@ object SampleExporter {
                 "WAV" -> add(if (bitDepth >= 24) "pcm_s24le" else "pcm_s16le")
                 "FLAC" -> {
                     add("flac")
+                    add("-sample_fmt")
+                    add(if (bitDepth >= 24) "s32" else "s16")
                     add("-bits_per_raw_sample")
                     add(if (bitDepth >= 24) "24" else "16")
                 }

@@ -24,6 +24,7 @@ class OutputNamesTest {
         assertEquals("2.0", args[args.indexOf("-t") + 1])
         assertEquals("flac", args[args.indexOf("-c:a") + 1])
         assertEquals("24", args[args.indexOf("-bits_per_raw_sample") + 1])
+        assertEquals("s32", args[args.indexOf("-sample_fmt") + 1])
         assertEquals("1", args[args.indexOf("-ac") + 1])
         val filter = args[args.indexOf("-af") + 1]
         org.junit.Assert.assertTrue(filter.contains("areverse"))
