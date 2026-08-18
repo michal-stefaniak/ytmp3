@@ -19,6 +19,10 @@ import java.util.UUID
 
 class SampleEditorActivity : AppCompatActivity() {
 
+    companion object {
+        const val EXTRA_PROJECT_ID = "projectId"
+    }
+
     private lateinit var b: ActivitySampleEditorBinding
     /** Original filesystem path or SAF document URI supplied by the download queue. */
     private lateinit var sourcePath: String
@@ -38,8 +42,9 @@ class SampleEditorActivity : AppCompatActivity() {
         b = ActivitySampleEditorBinding.inflate(layoutInflater)
         setContentView(b.root)
 
-        sourcePath = intent.getStringExtra("filePath") ?: run { finish(); return }
-        title = intent.getStringExtra("title") ?: sourcePath.substringAfterLast('/')
+        val project = intent.getStringExtra(EXTRA_PROJECT_ID)?.let(ProjectDb.get(this)::getProject)
+        sourcePath = project?.sourceUri ?: intent.getStringExtra("filePath") ?: run { finish(); return }
+        title = project?.title ?: intent.getStringExtra("title") ?: sourcePath.substringAfterLast('/')
         historyId = intent.getStringExtra("historyId")
         b.tvEditorTitle.text = title
 

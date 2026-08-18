@@ -27,6 +27,7 @@ import com.google.android.material.snackbar.Snackbar
 import com.ytmp3.databinding.ActivityMainBinding
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
 
@@ -47,14 +48,7 @@ class MainActivity : AppCompatActivity() {
 
     private val importAudio = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
-        try {
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } catch (_: SecurityException) {
-            // The editor still has the activity-granted read permission for this session. Some
-            // document providers simply don't offer persistable grants.
-        }
-        val title = DocumentFile.fromSingleUri(this, uri)?.name ?: "Imported audio"
-        openSampleEditor(uri.toString(), title, historyId = null)
+        createProjectsAndOpenFirst(listOf(uri), Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -158,18 +152,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleShareIntent(intent: Intent?) {
-        if (intent?.action != Intent.ACTION_SEND || intent.type != "text/plain") return
-        val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
-        val url = Regex("https?://[^\\s]+").find(text)?.value ?: text.trim()
-        if (!url.startsWith("http")) {
-            showSimpleDialog("Invalid URL", "Couldn't find a valid URL in what was shared.")
-            return
+        intent ?: return
+        val uris = ImportUris.fromIntent(intent)
+        if (uris.isNotEmpty()) createProjectsAndOpenFirst(uris, intent.flags)
+    }
+
+    private fun createProjectsAndOpenFirst(uris: List<Uri>, grantFlags: Int) {
+        val projects = uris.map { uri ->
+            persistReadGrant(uri, grantFlags)
+            SampleProject(
+                id = UUID.randomUUID().toString(),
+                sourceUri = uri.toString(),
+                title = DocumentFile.fromSingleUri(this, uri)?.name ?: "Imported audio"
+            )
         }
-        if (isPlaylistUrl(url)) {
-            openPlaylistPreview(url)
-        } else {
-            submitWithDupeCheck(listOf(url))
+        projects.forEach(ProjectDb.get(this)::upsertProject)
+        openProject(projects.first().id)
+    }
+
+    private fun persistReadGrant(uri: Uri, grantFlags: Int) {
+        val readGrant = grantFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+        if (readGrant == 0) return
+        try {
+            contentResolver.takePersistableUriPermission(uri, readGrant)
+        } catch (_: SecurityException) {
+            // Shares are valid for this activity session even when their provider offers no
+            // persistable grant; the project remains usable until Android revokes that grant.
         }
+    }
+
+    fun openProject(projectId: String) {
+        startActivity(
+            Intent(this, SampleEditorActivity::class.java)
+                .putExtra(SampleEditorActivity.EXTRA_PROJECT_ID, projectId)
+        )
     }
 
     private fun checkClipboard() {
