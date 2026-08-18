@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0D0D"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <EditText android:id="@+id/et_search" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="Search projects or samples" android:inputType="text" android:textColor="#FFFFFF" android:textColorHint="#888888" />
+    <EditText android:id="@+id/et_tag_filter" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="Filter by tag" android:inputType="text" android:textColor="#FFFFFF" android:textColorHint="#888888" />
+    <CheckBox android:id="@+id/cb_favourites" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="Favourites only" android:textColor="#FFFFFF" />
+    <TextView android:id="@+id/tv_hint" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Tap a sample to open its source project. Long press to favourite." android:textColor="#888888" android:textSize="12sp" />
+    <ListView android:id="@+id/lv_samples" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:divider="#333333" android:dividerHeight="1dp" />
+    <TextView android:id="@+id/tv_empty" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center" android:padding="24dp" android:text="No saved samples match these filters" android:textColor="#888888" android:visibility="gone" />
+    <Button android:id="@+id/btn_build_pack" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Build pack from shown samples" android:textAllCaps="false" />
+</LinearLayout>

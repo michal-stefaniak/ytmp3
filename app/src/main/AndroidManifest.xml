@@ -44,6 +44,8 @@
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".PlaylistPreviewActivity" android:exported="false" />
         <activity android:name=".HistoryActivity" android:exported="false" />
+        <activity android:name=".LibraryActivity" android:exported="false" />
+        <activity android:name=".PackBuilderActivity" android:exported="false" />
         <activity
             android:name=".SampleEditorActivity"
             android:exported="false"

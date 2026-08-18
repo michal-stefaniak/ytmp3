@@ -11,7 +11,7 @@ class ProjectDb private constructor(context: Context) :
 
     companion object {
         private const val DATABASE_NAME = "projects.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
 
         private const val PROJECTS = "projects"
         private const val REGIONS = "regions"
@@ -98,7 +98,23 @@ class ProjectDb private constructor(context: Context) :
         db.execSQL("CREATE INDEX samples_project_idx ON $SAMPLES(project_id)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS packs (" +
+                    "id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at_ms INTEGER NOT NULL, " +
+                    "tags TEXT NOT NULL DEFAULT '', destination_uri TEXT, " +
+                    "format TEXT NOT NULL CHECK(format IN ('WAV', 'FLAC')), " +
+                    "sample_rate_hz INTEGER NOT NULL, bit_depth INTEGER NOT NULL, zip INTEGER NOT NULL DEFAULT 0)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS pack_samples (" +
+                    "pack_id TEXT NOT NULL REFERENCES packs(id) ON DELETE CASCADE, " +
+                    "sample_id TEXT NOT NULL REFERENCES $SAMPLES(id) ON DELETE CASCADE, position INTEGER NOT NULL, " +
+                    "PRIMARY KEY(pack_id, sample_id), UNIQUE(pack_id, position))"
+            )
+        }
+    }
 
     fun upsertProject(project: SampleProject) {
         require(SampleRegion.validateOrdered(project.regions)) { "Project regions must be ordered and non-overlapping" }
@@ -150,6 +166,62 @@ class ProjectDb private constructor(context: Context) :
             while (cursor.moveToNext()) add(cursor.toSample())
         }
     }
+
+    fun upsertPack(pack: SamplePack) {
+        require(pack.format in EXPORT_FORMATS) { "Packs must be WAV or FLAC" }
+        require(pack.sampleIds.distinct().size == pack.sampleIds.size) { "A pack cannot contain a sample twice" }
+        writableDatabase.transaction {
+            val values = ContentValues().apply {
+                put("id", pack.id)
+                put("name", pack.name)
+                put("created_at_ms", pack.createdAtMs)
+                put("tags", pack.tags.joinToString(TAG_SEPARATOR))
+                put("destination_uri", pack.destinationUri)
+                put("format", pack.format)
+                put("sample_rate_hz", pack.sampleRateHz)
+                put("bit_depth", pack.bitDepth)
+                put("zip", pack.zip.asDatabaseInt())
+            }
+            if (update("packs", values, "id = ?", arrayOf(pack.id)) == 0) {
+                insertOrThrow("packs", null, values)
+            }
+            delete("pack_samples", "pack_id = ?", arrayOf(pack.id))
+            pack.sampleIds.forEachIndexed { position, sampleId ->
+                insertOrThrow("pack_samples", null, ContentValues().apply {
+                    put("pack_id", pack.id)
+                    put("sample_id", sampleId)
+                    put("position", position)
+                })
+            }
+        }
+    }
+
+    fun getPack(id: String): SamplePack? = readableDatabase.rawQuery(
+        "SELECT id, name, created_at_ms, tags, destination_uri, format, sample_rate_hz, bit_depth, zip FROM packs WHERE id = ?",
+        arrayOf(id)
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.toPack(packSampleIds(id)) else null }
+
+    fun listPacks(): List<SamplePack> = readableDatabase.rawQuery(
+        "SELECT id, name, created_at_ms, tags, destination_uri, format, sample_rate_hz, bit_depth, zip FROM packs ORDER BY created_at_ms DESC, id ASC",
+        null
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toPack(packSampleIds(cursor.getString(0)))) } }
+
+    private fun packSampleIds(packId: String): List<String> = readableDatabase.rawQuery(
+        "SELECT sample_id FROM pack_samples WHERE pack_id = ? ORDER BY position ASC", arrayOf(packId)
+    ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+
+    private fun Cursor.toPack(sampleIds: List<String>) = SamplePack(
+        id = getString(0),
+        name = getString(1),
+        createdAtMs = getLong(2),
+        tags = getString(3).splitTags(),
+        destinationUri = getStringOrNull(4),
+        format = getString(5),
+        sampleRateHz = getInt(6),
+        bitDepth = getInt(7),
+        zip = getInt(8).asBoolean(),
+        sampleIds = sampleIds
+    )
 
     private fun insertProject(db: SQLiteDatabase, project: SampleProject) {
         val values = project.toContentValues()
