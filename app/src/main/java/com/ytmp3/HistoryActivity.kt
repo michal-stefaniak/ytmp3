@@ -58,7 +58,8 @@ class HistoryActivity : AppCompatActivity() {
         inner class VH(private val b: ItemHistoryBinding) : RecyclerView.ViewHolder(b.root) {
             fun bind(r: HistoryRecord) {
                 b.tvHistoryTitle.text = r.title.ifBlank { r.url }
-                b.tvHistoryMeta.text = "${fmt.format(Date(r.timestamp))} • ${r.status.lowercase()}"
+                val kindLabel = if (r.kind == "SAMPLE") "sample • " else ""
+                b.tvHistoryMeta.text = "$kindLabel${fmt.format(Date(r.timestamp))} • ${r.status.lowercase()}"
                 b.tvHistoryMeta.setTextColor(
                     b.root.context.getColor(
                         if (r.status == "ERROR") android.R.color.holo_red_light else android.R.color.darker_gray

@@ -10,11 +10,14 @@ data class HistoryRecord(
     val url: String,
     val title: String,
     val timestamp: Long,
-    val status: String
+    val status: String,
+    val kind: String = "FULL_TRACK",
+    val parentId: String? = null,
+    val filePath: String? = null
 )
 
 class HistoryDb private constructor(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, "history.db", null, 1) {
+    SQLiteOpenHelper(context.applicationContext, "history.db", null, 3) {
 
     companion object {
         @Volatile private var inst: HistoryDb? = null
@@ -25,13 +28,19 @@ class HistoryDb private constructor(context: Context) :
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
-            "CREATE TABLE history (id TEXT PRIMARY KEY, url TEXT, title TEXT, timestamp INTEGER, status TEXT)"
+            "CREATE TABLE history (id TEXT PRIMARY KEY, url TEXT, title TEXT, timestamp INTEGER, status TEXT, " +
+                "kind TEXT NOT NULL DEFAULT 'FULL_TRACK', parentId TEXT, filePath TEXT)"
         )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-        db.execSQL("DROP TABLE IF EXISTS history")
-        onCreate(db)
+        if (old < 2) {
+            db.execSQL("ALTER TABLE history ADD COLUMN kind TEXT NOT NULL DEFAULT 'FULL_TRACK'")
+            db.execSQL("ALTER TABLE history ADD COLUMN parentId TEXT")
+        }
+        if (old < 3) {
+            db.execSQL("ALTER TABLE history ADD COLUMN filePath TEXT")
+        }
     }
 
     fun insert(r: HistoryRecord) {
@@ -43,15 +52,31 @@ class HistoryDb private constructor(context: Context) :
                 put("title", r.title)
                 put("timestamp", r.timestamp)
                 put("status", r.status)
+                put("kind", r.kind)
+                put("parentId", r.parentId)
+                put("filePath", r.filePath)
             },
             SQLiteDatabase.CONFLICT_REPLACE
         )
     }
 
+    fun insertSample(id: String, url: String, title: String, parentId: String, filePath: String) {
+        insert(
+            HistoryRecord(
+                id = id, url = url, title = title, timestamp = System.currentTimeMillis(),
+                status = "DONE", kind = "SAMPLE", parentId = parentId, filePath = filePath
+            )
+        )
+    }
+
+    fun markSampled(id: String) {
+        writableDatabase.execSQL("UPDATE history SET status = 'SAMPLED' WHERE id = ?", arrayOf(id))
+    }
+
     fun getAll(): List<HistoryRecord> {
         val list = mutableListOf<HistoryRecord>()
         readableDatabase.rawQuery(
-            "SELECT id, url, title, timestamp, status FROM history ORDER BY timestamp DESC", null
+            "SELECT id, url, title, timestamp, status, kind, parentId, filePath FROM history ORDER BY timestamp DESC", null
         ).use { c ->
             while (c.moveToNext()) {
                 list += HistoryRecord(
@@ -59,7 +84,10 @@ class HistoryDb private constructor(context: Context) :
                     url = c.getString(1),
                     title = c.getString(2),
                     timestamp = c.getLong(3),
-                    status = c.getString(4)
+                    status = c.getString(4),
+                    kind = c.getString(5),
+                    parentId = c.getString(6),
+                    filePath = c.getString(7)
                 )
             }
         }
@@ -71,12 +99,16 @@ class HistoryDb private constructor(context: Context) :
     }
 
     fun findByUrl(url: String): HistoryRecord? {
+        // 'SAMPLED' (set by markSampled() when the user deletes the source track after exporting
+        // samples from it) still means this URL was already downloaded -- it must keep matching
+        // here, or deleting the source after sampling silently disables dupe-check for that URL.
         readableDatabase.rawQuery(
-            "SELECT id,url,title,timestamp,status FROM history WHERE url=? AND status='DONE' LIMIT 1",
+            "SELECT id,url,title,timestamp,status,kind,parentId,filePath FROM history " +
+                "WHERE url=? AND status IN ('DONE','SAMPLED') LIMIT 1",
             arrayOf(url)
         ).use { c ->
             if (!c.moveToFirst()) return null
-            return HistoryRecord(c.getString(0), c.getString(1), c.getString(2), c.getLong(3), c.getString(4))
+            return HistoryRecord(c.getString(0), c.getString(1), c.getString(2), c.getLong(3), c.getString(4), c.getString(5), c.getString(6), c.getString(7))
         }
     }
 }
