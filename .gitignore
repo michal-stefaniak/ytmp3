@@ -8,5 +8,6 @@ app/build/
 /captures/
 .externalNativeBuild/
 .cxx/
+.worktrees/
 *.jks
 *.keystore
