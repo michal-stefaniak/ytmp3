@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.StatFs
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import com.yausername.youtubedl_android.YoutubeDL
@@ -106,20 +107,26 @@ object DownloadManager {
                 while (!isOnWifi()) { delay(15_000) }
             }
 
-            semaphore.withPermit {
-                if (Prefs.storageWarn) {
-                    val free = StorageUtil.availableBytes(
-                        appCtx,
-                        Prefs.downloadDirUri,
-                        appCtx.getExternalFilesDir(null) ?: appCtx.cacheDir
-                    )
-                    if (free != null && free < 200L * 1024 * 1024) {
-                        update(item.id) { it.copy(status = DownloadStatus.ERROR, errorMsg = "Low storage (<200MB free)") }
-                        saveHistory(item.id, item.url, item.title, "ERROR")
-                        return@withPermit
-                    }
+            if (Prefs.storageWarn) {
+                // Two places actually consume disk: cacheDir (yt-dlp/ffmpeg scratch work in
+                // tempDir below, always local regardless of the configured download dir) and the
+                // final destination (SAF tree or external Music dir) the finished file gets
+                // copied to. Checked before acquiring a permit so a slow/hung SAF provider can't
+                // hold a download slot hostage -- StorageUtil also bounds it with its own timeout.
+                val cacheFree = StatFs(appCtx.cacheDir.absolutePath).availableBytes
+                val destFree = StorageUtil.availableBytes(
+                    appCtx,
+                    Prefs.downloadDirUri,
+                    appCtx.getExternalFilesDir(null) ?: appCtx.cacheDir
+                )
+                if (cacheFree < 200L * 1024 * 1024 || (destFree != null && destFree < 200L * 1024 * 1024)) {
+                    update(item.id) { it.copy(status = DownloadStatus.ERROR, errorMsg = "Low storage (<200MB free)") }
+                    saveHistory(item.id, item.url, item.title, "ERROR")
+                    return@launch
                 }
+            }
 
+            semaphore.withPermit {
                 update(item.id) { it.copy(status = DownloadStatus.DOWNLOADING) }
                 val tempDir = File(appCtx.cacheDir, "dl_${item.id}").also { it.mkdirs() }
                 try {

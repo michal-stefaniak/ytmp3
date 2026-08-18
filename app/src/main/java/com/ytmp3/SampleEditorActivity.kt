@@ -133,46 +133,43 @@ class SampleEditorActivity : AppCompatActivity() {
         exporting = true
         b.btnExport.isEnabled = false
         lifecycleScope.launch {
-            if (Prefs.storageWarn) {
-                val estimatedBytes = regions.sumOf { (it.endMs - it.startMs) * 176L } // ~176 bytes/ms for 16-bit stereo 44.1kHz WAV
-                // StorageUtil can do a blocking IPC query to another process's DocumentsProvider
-                // (e.g. a cloud-backed SAF tree) -- run it off Main.
-                val free = withContext(Dispatchers.IO) {
-                    StorageUtil.availableBytes(
+            try {
+                if (Prefs.storageWarn) {
+                    val estimatedBytes = regions.sumOf { (it.endMs - it.startMs) * 176L } // ~176 bytes/ms for 16-bit stereo 44.1kHz WAV
+                    // free == null means the destination's free space couldn't be determined (e.g.
+                    // the SAF provider doesn't expose it, or didn't answer in time) -- skip the
+                    // precheck rather than reporting a number from the wrong volume.
+                    val free = StorageUtil.availableBytes(
                         this@SampleEditorActivity,
                         Prefs.downloadDirUri,
                         getExternalFilesDir(null) ?: cacheDir
                     )
+                    if (free != null && free < estimatedBytes + 50L * 1024 * 1024) {
+                        showErrorDialog("Low storage: need ~${estimatedBytes / 1024 / 1024}MB free for WAV export")
+                        return@launch
+                    }
                 }
-                // free == null means the destination's free space couldn't be determined (e.g. the
-                // SAF provider doesn't expose it) -- skip the precheck rather than reporting a number
-                // from the wrong volume, per the same reasoning as this method's doc comment below.
-                if (free != null && free < estimatedBytes + 50L * 1024 * 1024) {
-                    showErrorDialog("Low storage: need ~${estimatedBytes / 1024 / 1024}MB free for WAV export")
-                    exporting = false
-                    b.btnExport.isEnabled = true
+
+                val exported = SampleExporter.export(this@SampleEditorActivity, filePath, title, regions)
+                if (exported.isEmpty()) {
+                    showErrorDialog("Export failed for all regions")
                     return@launch
                 }
+                val parentId = historyId ?: UUID.randomUUID().toString()
+                exported.forEach { sample ->
+                    HistoryDb.get(this@SampleEditorActivity).insertSample(
+                        id = UUID.randomUUID().toString(),
+                        url = "",
+                        title = "sample of $title",
+                        parentId = parentId,
+                        filePath = sample.filePath
+                    )
+                }
+                askKeepFullTrack()
+            } finally {
+                exporting = false
+                b.btnExport.isEnabled = true
             }
-
-            val exported = SampleExporter.export(this@SampleEditorActivity, filePath, title, regions)
-            exporting = false
-            b.btnExport.isEnabled = true
-            if (exported.isEmpty()) {
-                showErrorDialog("Export failed for all regions")
-                return@launch
-            }
-            val parentId = historyId ?: UUID.randomUUID().toString()
-            exported.forEach { sample ->
-                HistoryDb.get(this@SampleEditorActivity).insertSample(
-                    id = UUID.randomUUID().toString(),
-                    url = "",
-                    title = "sample of $title",
-                    parentId = parentId,
-                    filePath = sample.filePath
-                )
-            }
-            askKeepFullTrack()
         }
     }
 

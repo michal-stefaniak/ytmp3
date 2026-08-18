@@ -4,24 +4,35 @@ import android.content.Context
 import android.net.Uri
 import android.os.StatFs
 import android.provider.DocumentsContract
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 
 /**
  * Free-space checks for wherever output actually lands: [Prefs.downloadDirUri]'s SAF tree when
  * set (which can be a different volume entirely, e.g. an SD card or a cloud-backed provider),
  * or [fallbackDir] otherwise -- never cacheDir (only ever used as scratch space). Checking
  * cacheDir unconditionally could pass with ample internal space while the real destination is
- * full, or vice versa. Returns null if the destination's free space can't be determined.
+ * full, or vice versa. Returns null if the destination's free space can't be determined, or if
+ * the provider doesn't answer within the timeout -- callers should treat null as "skip the
+ * precheck," not as zero free space.
  *
- * Callers on Dispatchers.Main must call this from a coroutine and switch to Dispatchers.IO first
- * -- the SAF path performs a blocking ContentResolver IPC query to another process.
+ * Safe to call from any dispatcher, including Main: internally dispatches to IO and bounds the
+ * SAF path's blocking ContentResolver IPC query with a timeout, so a hung/slow provider can't
+ * block the caller indefinitely.
  */
 object StorageUtil {
 
-    fun availableBytes(context: Context, dirUriStr: String?, fallbackDir: java.io.File): Long? =
-        if (dirUriStr != null) {
-            availableBytesForSafTree(context, Uri.parse(dirUriStr))
-        } else {
-            StatFs(fallbackDir.absolutePath).availableBytes
+    suspend fun availableBytes(context: Context, dirUriStr: String?, fallbackDir: File): Long? =
+        withTimeoutOrNull(5_000) {
+            withContext(Dispatchers.IO) {
+                if (dirUriStr != null) {
+                    availableBytesForSafTree(context, Uri.parse(dirUriStr))
+                } else {
+                    StatFs(fallbackDir.absolutePath).availableBytes
+                }
+            }
         }
 
     private fun availableBytesForSafTree(context: Context, treeUri: Uri): Long? = try {
