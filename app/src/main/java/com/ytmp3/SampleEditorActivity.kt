@@ -2,7 +2,6 @@ package com.ytmp3
 
 import android.media.MediaPlayer
 import android.os.Bundle
-import android.os.StatFs
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -131,21 +130,31 @@ class SampleEditorActivity : AppCompatActivity() {
         val regions = b.waveform.currentRegions()
         if (regions.isEmpty()) return
 
-        if (Prefs.storageWarn) {
-            val estimatedBytes = regions.sumOf { (it.endMs - it.startMs) * 176L } // ~176 bytes/ms for 16-bit stereo 44.1kHz WAV
-            val free = availableBytesForExportDestination()
-            // free == null means the destination's free space couldn't be determined (e.g. the
-            // SAF provider doesn't expose it) -- skip the precheck rather than reporting a number
-            // from the wrong volume, per the same reasoning as this method's doc comment below.
-            if (free != null && free < estimatedBytes + 50L * 1024 * 1024) {
-                showErrorDialog("Low storage: need ~${estimatedBytes / 1024 / 1024}MB free for WAV export")
-                return
-            }
-        }
-
         exporting = true
         b.btnExport.isEnabled = false
         lifecycleScope.launch {
+            if (Prefs.storageWarn) {
+                val estimatedBytes = regions.sumOf { (it.endMs - it.startMs) * 176L } // ~176 bytes/ms for 16-bit stereo 44.1kHz WAV
+                // StorageUtil can do a blocking IPC query to another process's DocumentsProvider
+                // (e.g. a cloud-backed SAF tree) -- run it off Main.
+                val free = withContext(Dispatchers.IO) {
+                    StorageUtil.availableBytes(
+                        this@SampleEditorActivity,
+                        Prefs.downloadDirUri,
+                        getExternalFilesDir(null) ?: cacheDir
+                    )
+                }
+                // free == null means the destination's free space couldn't be determined (e.g. the
+                // SAF provider doesn't expose it) -- skip the precheck rather than reporting a number
+                // from the wrong volume, per the same reasoning as this method's doc comment below.
+                if (free != null && free < estimatedBytes + 50L * 1024 * 1024) {
+                    showErrorDialog("Low storage: need ~${estimatedBytes / 1024 / 1024}MB free for WAV export")
+                    exporting = false
+                    b.btnExport.isEnabled = true
+                    return@launch
+                }
+            }
+
             val exported = SampleExporter.export(this@SampleEditorActivity, filePath, title, regions)
             exporting = false
             b.btnExport.isEnabled = true
@@ -165,49 +174,6 @@ class SampleEditorActivity : AppCompatActivity() {
             }
             askKeepFullTrack()
         }
-    }
-
-    /**
-     * SampleExporter's actual output destination is [Prefs.downloadDirUri]'s SAF tree when set
-     * (which can be a different volume entirely, e.g. an SD card), or getExternalFilesDir/Samples
-     * otherwise -- never cacheDir (only used as scratch space during the ffmpeg cut). Checking
-     * cacheDir unconditionally, as this precheck used to, could pass with ample internal space
-     * while the real SAF destination is full (export fails only after already doing the ffmpeg
-     * work), or vice versa. Returns null if the destination's free space can't be determined.
-     */
-    private fun availableBytesForExportDestination(): Long? {
-        val dirUriStr = Prefs.downloadDirUri
-        return if (dirUriStr != null) {
-            availableBytesForSafTree(android.net.Uri.parse(dirUriStr))
-        } else {
-            StatFs((getExternalFilesDir(null) ?: cacheDir).absolutePath).availableBytes
-        }
-    }
-
-    private fun availableBytesForSafTree(treeUri: android.net.Uri): Long? = try {
-        val rootId = android.provider.DocumentsContract.getTreeDocumentId(treeUri).substringBefore(':')
-        val authority = treeUri.authority
-        if (authority == null) {
-            null
-        } else {
-            contentResolver.query(
-                android.provider.DocumentsContract.buildRootsUri(authority),
-                arrayOf(android.provider.DocumentsContract.Root.COLUMN_ROOT_ID, android.provider.DocumentsContract.Root.COLUMN_AVAILABLE_BYTES),
-                null, null, null
-            )?.use { c ->
-                val rootIdIdx = c.getColumnIndex(android.provider.DocumentsContract.Root.COLUMN_ROOT_ID)
-                val availIdx = c.getColumnIndex(android.provider.DocumentsContract.Root.COLUMN_AVAILABLE_BYTES)
-                var result: Long? = null
-                while (result == null && c.moveToNext()) {
-                    if (rootIdIdx >= 0 && availIdx >= 0 && c.getString(rootIdIdx) == rootId && !c.isNull(availIdx)) {
-                        result = c.getLong(availIdx)
-                    }
-                }
-                result
-            }
-        }
-    } catch (e: Exception) {
-        null
     }
 
     private fun askKeepFullTrack() {

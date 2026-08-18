@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
-import android.os.StatFs
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import com.yausername.youtubedl_android.YoutubeDL
@@ -109,8 +108,12 @@ object DownloadManager {
 
             semaphore.withPermit {
                 if (Prefs.storageWarn) {
-                    val free = StatFs(appCtx.cacheDir.absolutePath).availableBytes
-                    if (free < 200L * 1024 * 1024) {
+                    val free = StorageUtil.availableBytes(
+                        appCtx,
+                        Prefs.downloadDirUri,
+                        appCtx.getExternalFilesDir(null) ?: appCtx.cacheDir
+                    )
+                    if (free != null && free < 200L * 1024 * 1024) {
                         update(item.id) { it.copy(status = DownloadStatus.ERROR, errorMsg = "Low storage (<200MB free)") }
                         saveHistory(item.id, item.url, item.title, "ERROR")
                         return@withPermit
