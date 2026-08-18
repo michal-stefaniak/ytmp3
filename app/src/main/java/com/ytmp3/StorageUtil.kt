@@ -5,7 +5,7 @@ import android.net.Uri
 import android.os.StatFs
 import android.provider.DocumentsContract
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
@@ -19,14 +19,17 @@ import java.io.File
  * precheck," not as zero free space.
  *
  * Safe to call from any dispatcher, including Main: internally dispatches to IO and bounds the
- * SAF path's blocking ContentResolver IPC query with a timeout, so a hung/slow provider can't
- * block the caller indefinitely.
+ * SAF path's blocking ContentResolver IPC query with a timeout. Uses runInterruptible (not plain
+ * withContext) so that on timeout the underlying IO-dispatcher thread is actually interrupted
+ * out of the blocking Binder call, instead of being abandoned mid-query -- a bare
+ * withTimeoutOrNull around a non-suspending blocking call only stops the caller from waiting, it
+ * doesn't free the thread.
  */
 object StorageUtil {
 
     suspend fun availableBytes(context: Context, dirUriStr: String?, fallbackDir: File): Long? =
         withTimeoutOrNull(5_000) {
-            withContext(Dispatchers.IO) {
+            runInterruptible(Dispatchers.IO) {
                 if (dirUriStr != null) {
                     availableBytesForSafTree(context, Uri.parse(dirUriStr))
                 } else {

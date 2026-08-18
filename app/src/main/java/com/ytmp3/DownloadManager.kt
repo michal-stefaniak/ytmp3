@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
-import android.os.StatFs
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import com.yausername.youtubedl_android.YoutubeDL
@@ -113,13 +112,14 @@ object DownloadManager {
                 // final destination (SAF tree or external Music dir) the finished file gets
                 // copied to. Checked before acquiring a permit so a slow/hung SAF provider can't
                 // hold a download slot hostage -- StorageUtil also bounds it with its own timeout.
-                val cacheFree = StatFs(appCtx.cacheDir.absolutePath).availableBytes
+                val cacheFree = StorageUtil.availableBytes(appCtx, null, appCtx.cacheDir)
                 val destFree = StorageUtil.availableBytes(
                     appCtx,
                     Prefs.downloadDirUri,
                     appCtx.getExternalFilesDir(null) ?: appCtx.cacheDir
                 )
-                if (cacheFree < 200L * 1024 * 1024 || (destFree != null && destFree < 200L * 1024 * 1024)) {
+                val threshold = 200L * 1024 * 1024
+                if ((cacheFree != null && cacheFree < threshold) || (destFree != null && destFree < threshold)) {
                     update(item.id) { it.copy(status = DownloadStatus.ERROR, errorMsg = "Low storage (<200MB free)") }
                     saveHistory(item.id, item.url, item.title, "ERROR")
                     return@launch
