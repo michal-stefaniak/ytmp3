@@ -30,6 +30,7 @@ class SampleEditorActivity : AppCompatActivity() {
     private var trackDurationMs: Long = 0
     private var previewJob: Job? = null
     private var previewPlayer: MediaPlayer? = null
+    private var previewRegionId: String? = null
     private var exporting = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -98,6 +99,10 @@ class SampleEditorActivity : AppCompatActivity() {
     }
 
     private fun previewRegion(region: RegionMarker) {
+        if (previewRegionId == region.id) {
+            stopPreview()
+            return
+        }
         stopPreview()
         // MediaPlayer.prepare() blocks (unlike prepareAsync()) parsing/buffering the container --
         // on a large file or slow storage this can stall the main thread inside a touch-tap
@@ -115,6 +120,7 @@ class SampleEditorActivity : AppCompatActivity() {
                 }
                 val player = createdPlayer!!
                 previewPlayer = player
+                previewRegionId = region.id
                 player.start()
                 // Loops the region continuously (per the design spec) until stopPreview() cancels
                 // this job -- delay() is a cancellable suspension point, so cancellation unwinds
@@ -135,6 +141,14 @@ class SampleEditorActivity : AppCompatActivity() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // If setup succeeded far enough to publish this player, the normal finally block
+                // deliberately leaves it to stopPreview(). This is a real playback failure, so
+                // release it here instead of retaining an unusable player/active-region marker.
+                if (previewPlayer === createdPlayer) {
+                    previewPlayer?.release()
+                    previewPlayer = null
+                    previewRegionId = null
+                }
                 showErrorDialog(e.message ?: "Couldn't play preview")
             } finally {
                 // Either this job never got to publish itself as the active preview player (it was
@@ -152,6 +166,7 @@ class SampleEditorActivity : AppCompatActivity() {
         previewJob = null
         previewPlayer?.release()
         previewPlayer = null
+        previewRegionId = null
     }
 
     private fun exportRegions() {
