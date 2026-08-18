@@ -30,6 +30,65 @@
         android:layout_weight="1"
         android:visibility="gone" />
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp">
+
+        <Button
+            android:id="@+id/btn_smart_chop"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Smart chop"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btn_undo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="Undo"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btn_redo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="Redo"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp">
+
+        <EditText
+            android:id="@+id/input_bpm"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="BPM"
+            android:imeOptions="actionDone"
+            android:inputType="numberDecimal"
+            android:maxLines="1"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#AAAAAA" />
+
+        <Button
+            android:id="@+id/btn_show_grid"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Beat grid"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/tv_region_count"
         android:layout_width="match_parent"
@@ -45,7 +104,7 @@
         android:layout_height="56dp"
         android:layout_margin="16dp"
         android:backgroundTint="#CC0000"
-        android:text="Export"
+            android:text="Add to library"
         android:textAllCaps="false"
         android:textColor="#FFFFFF"
         android:enabled="false" />

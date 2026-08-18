@@ -5,15 +5,11 @@ import android.app.Application
 import android.os.Bundle
 import androidx.core.view.WindowCompat
 import com.yausername.ffmpeg.FFmpeg
-import com.yausername.youtubedl_android.YoutubeDL
 
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
-        Prefs.init(this)
-        DownloadManager.init(this)
         try {
-            YoutubeDL.getInstance().init(this)
             FFmpeg.getInstance().init(this)
         } catch (e: Exception) {
             e.printStackTrace()

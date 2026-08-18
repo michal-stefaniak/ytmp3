@@ -3,7 +3,9 @@ package com.ytmp3
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
-import androidx.documentfile.provider.DocumentFile
+import android.view.MenuItem
+import android.widget.PopupMenu
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -15,40 +17,121 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.UUID
 
 class SampleEditorActivity : AppCompatActivity() {
 
+    companion object {
+        const val EXTRA_PROJECT_ID = "projectId"
+        private const val MODE_SILENCE = 1
+        private const val MODE_TRANSIENTS = 2
+        private const val MODE_GRID = 3
+        private const val GRID_SUBDIVISION = 4
+    }
+
     private lateinit var b: ActivitySampleEditorBinding
-    /** Original filesystem path or SAF document URI supplied by the download queue. */
+    /** Original filesystem path or SAF document URI selected by the user. */
     private lateinit var sourcePath: String
     /** Local source passed to ffmpeg and MediaPlayer; SAF documents are staged here. */
     private lateinit var workingFilePath: String
     private var stagedSourceFile: File? = null
     private lateinit var title: String
-    private var historyId: String? = null
     private var trackDurationMs: Long = 0
     private var previewJob: Job? = null
     private var previewPlayer: MediaPlayer? = null
     private var previewRegionId: String? = null
     private var exporting = false
+    private var projectId: String? = null
+    private lateinit var regionHistory: RegionHistory
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         b = ActivitySampleEditorBinding.inflate(layoutInflater)
         setContentView(b.root)
 
-        sourcePath = intent.getStringExtra("filePath") ?: run { finish(); return }
-        title = intent.getStringExtra("title") ?: sourcePath.substringAfterLast('/')
-        historyId = intent.getStringExtra("historyId")
+        val project = intent.getStringExtra(EXTRA_PROJECT_ID)?.let(ProjectDb.get(this)::getProject)
+        projectId = project?.id
+        regionHistory = RegionHistory(project?.regions ?: emptyList())
+        sourcePath = project?.sourceUri ?: run { finish(); return }
+        title = project.title
         b.tvEditorTitle.text = title
 
-        b.waveform.onRegionsChanged = { regions -> b.btnExport.isEnabled = regions.isNotEmpty() && !exporting }
+        b.waveform.setRegions(project?.regions.orEmpty().map { it.toMarker() })
+        b.waveform.onRegionsChanged = { regions -> commitRegions(regions.map { it.toSampleRegion() }) }
         b.waveform.onRegionTapped = { region -> previewRegion(region) }
         b.btnExport.setOnClickListener { exportRegions() }
+        b.btnSmartChop.setOnClickListener { showSmartChopMenu() }
+        b.btnUndo.setOnClickListener { restoreHistory(regionHistory.undo()) }
+        b.btnRedo.setOnClickListener { restoreHistory(regionHistory.redo()) }
+        b.btnShowGrid.setOnClickListener { showBeatGrid() }
+        updateRegionControls(regionHistory.current())
 
         loadWaveform()
     }
+
+    private fun showSmartChopMenu() {
+        PopupMenu(this, b.btnSmartChop).apply {
+            menu.add(0, MODE_SILENCE, 0, "Silence")
+            menu.add(0, MODE_TRANSIENTS, 1, "Transients")
+            menu.add(0, MODE_GRID, 2, "Beat grid")
+            setOnMenuItemClickListener(::applySmartChop)
+            show()
+        }
+    }
+
+    private fun applySmartChop(item: MenuItem): Boolean {
+        if (trackDurationMs <= 0) return true
+        val regions = when (item.itemId) {
+            MODE_SILENCE -> SmartChop.bySilence(envelope(), .05f, 200L, peakDurationMs())
+            MODE_TRANSIENTS -> SmartChop.byTransients(envelope(), .18f, 100L, peakDurationMs())
+            MODE_GRID -> bpmOrNull()?.let { SmartChop.byGrid(trackDurationMs, it, GRID_SUBDIVISION) }
+                ?: run {
+                    Toast.makeText(this, "Enter a valid BPM before using beat-grid chop", Toast.LENGTH_SHORT).show()
+                    return true
+                }
+            else -> return false
+        }.map { (start, end) -> SampleRegion(startMs = start, endMs = end) }
+        commitRegions(regions)
+        return true
+    }
+
+    private fun showBeatGrid() {
+        b.waveform.setBeatGrid(bpmOrNull(), GRID_SUBDIVISION)
+    }
+
+    private fun envelope(): List<Float> = b.waveform.currentPeaks().map { peak ->
+        maxOf(kotlin.math.abs(peak.min.toInt()), kotlin.math.abs(peak.max.toInt())) / Short.MAX_VALUE.toFloat()
+    }
+
+    private fun peakDurationMs(): Long =
+        (trackDurationMs / b.waveform.currentPeaks().size.coerceAtLeast(1)).coerceAtLeast(1L)
+
+    private fun bpmOrNull(): Float? = b.inputBpm.text.toString().toFloatOrNull()
+        ?.takeIf { it.isFinite() && it > 0f }
+
+    private fun commitRegions(regions: List<SampleRegion>) {
+        val ordered = regions.sortedBy { it.startMs }
+        if (!SampleRegion.validateOrdered(ordered)) return
+        regionHistory.push(ordered)
+        b.waveform.setRegions(ordered.map { it.toMarker() })
+        projectId?.let { ProjectDb.get(this).saveRegions(it, ordered) }
+        updateRegionControls(ordered)
+    }
+
+    private fun restoreHistory(regions: List<SampleRegion>) {
+        b.waveform.setRegions(regions.map { it.toMarker() })
+        projectId?.let { ProjectDb.get(this).saveRegions(it, regions) }
+        updateRegionControls(regions)
+    }
+
+    private fun updateRegionControls(regions: List<SampleRegion>) {
+        b.btnExport.isEnabled = regions.isNotEmpty() && !exporting
+        b.btnUndo.isEnabled = regionHistory.canUndo()
+        b.btnRedo.isEnabled = regionHistory.canRedo()
+    }
+
+    private fun SampleRegion.toMarker() = RegionMarker(id = id, startMs = startMs, endMs = endMs)
+
+    private fun RegionMarker.toSampleRegion() = SampleRegion(id = id, startMs = startMs, endMs = endMs)
 
     private fun loadWaveform() {
         b.progressExtracting.visibility = android.view.View.VISIBLE
@@ -60,8 +143,8 @@ class SampleEditorActivity : AppCompatActivity() {
             // cuts (which operate on the real file's own timescale), silently shifting every
             // exported region. It also avoids hard-gating the whole feature on
             // MediaMetadataRetriever successfully reporting a duration -- a known failure mode for
-            // MP3s with embedded thumbnail/metadata (which every download from this app has) that
-            // ffmpeg itself can often still decode fine.
+            // containers whose metadata does not expose a reliable duration even though ffmpeg
+            // can decode their audio.
             val result = runCatching {
                 workingFilePath = withContext(Dispatchers.IO) { stageSourceIfNeeded() }
                 WaveformExtractor.extract(this@SampleEditorActivity, workingFilePath).getOrThrow()
@@ -72,6 +155,7 @@ class SampleEditorActivity : AppCompatActivity() {
                     trackDurationMs = data.durationMs
                     b.waveform.visibility = android.view.View.VISIBLE
                     b.waveform.setPeaks(data.peaks, trackDurationMs)
+                    b.waveform.setBeatGrid(bpmOrNull(), GRID_SUBDIVISION)
                 },
                 onFailure = { showErrorDialog(it.message ?: "Failed to read audio", finishOnDismiss = true) }
             )
@@ -79,8 +163,8 @@ class SampleEditorActivity : AppCompatActivity() {
     }
 
     /**
-     * FFmpeg and MediaPlayer consume paths, whereas a user-selected download directory returns a
-     * SAF content URI. Stage only that URI into app cache; direct downloads continue to be read
+     * FFmpeg and MediaPlayer consume paths, whereas a user-selected document is often a SAF
+     * content URI. Stage only that URI into app cache; direct files continue to be read
      * in place. The temporary copy is removed in [onDestroy].
      */
     private fun stageSourceIfNeeded(): String {
@@ -178,71 +262,30 @@ class SampleEditorActivity : AppCompatActivity() {
         b.btnExport.isEnabled = false
         lifecycleScope.launch {
             try {
-                if (Prefs.storageWarn) {
-                    val estimatedBytes = regions.sumOf { (it.endMs - it.startMs) * 176L } // ~176 bytes/ms for 16-bit stereo 44.1kHz WAV
-                    // free == null means the destination's free space couldn't be determined (e.g.
-                    // the SAF provider doesn't expose it, or didn't answer in time) -- skip the
-                    // precheck rather than reporting a number from the wrong volume.
-                    val free = StorageUtil.availableBytes(
-                        this@SampleEditorActivity,
-                        Prefs.downloadDirUri,
-                        getExternalFilesDir(null) ?: cacheDir
-                    )
-                    if (free != null && free < estimatedBytes + 50L * 1024 * 1024) {
-                        showErrorDialog("Low storage: need ~${estimatedBytes / 1024 / 1024}MB free for WAV export")
-                        return@launch
-                    }
-                }
-
-                val exported = SampleExporter.export(this@SampleEditorActivity, workingFilePath, title, regions)
-                if (exported.isEmpty()) {
-                    showErrorDialog("Export failed for all regions")
-                    return@launch
-                }
-                val parentId = historyId ?: UUID.randomUUID().toString()
-                exported.forEach { sample ->
-                    HistoryDb.get(this@SampleEditorActivity).insertSample(
-                        id = UUID.randomUUID().toString(),
-                        url = "",
-                        title = "sample of $title",
-                        parentId = parentId,
-                        filePath = sample.filePath
+                val currentProjectId = projectId ?: return@launch
+                val db = ProjectDb.get(this@SampleEditorActivity)
+                regions.forEachIndexed { index, region ->
+                    db.upsertSample(
+                        SampleRecord(
+                            id = region.id,
+                            projectId = currentProjectId,
+                            regionId = region.id,
+                            startMs = region.startMs,
+                            endMs = region.endMs,
+                            outputUri = sourcePath,
+                            durationMs = region.endMs - region.startMs,
+                            format = "WAV",
+                            label = "${title.substringBeforeLast('.')} ${index + 1}"
+                        )
                     )
                 }
-                askKeepFullTrack()
+                Toast.makeText(this@SampleEditorActivity, "${regions.size} sample(s) added to your library", Toast.LENGTH_SHORT).show()
             } finally {
                 exporting = false
                 b.btnExport.isEnabled = true
             }
         }
     }
-
-    private fun askKeepFullTrack() {
-        AlertDialog.Builder(this)
-            .setTitle("Keep full track too?")
-            .setMessage("The full downloaded track can be deleted now that your samples are exported, or kept alongside them.")
-            .setPositiveButton("Keep") { _, _ -> finish() }
-            .setNegativeButton("Delete") { _, _ ->
-                if (deleteOriginalSource()) {
-                    historyId?.let {
-                        HistoryDb.get(this).markSampled(it)
-                        DownloadManager.removeItem(it)
-                    }
-                } else {
-                    showErrorDialog("Couldn't delete the full track; your exported samples are safe.")
-                }
-                finish()
-            }
-            .setCancelable(false)
-            .show()
-    }
-
-    private fun deleteOriginalSource(): Boolean =
-        if (sourcePath.startsWith("content://")) {
-            DocumentFile.fromSingleUri(this, Uri.parse(sourcePath))?.delete() == true
-        } else {
-            File(sourcePath).delete()
-        }
 
     private fun showErrorDialog(message: String, finishOnDismiss: Boolean = false) {
         AlertDialog.Builder(this)

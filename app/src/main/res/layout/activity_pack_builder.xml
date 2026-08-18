@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0D0D"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <EditText android:id="@+id/et_pack_name" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="Pack name" android:inputType="text" android:textColor="#FFFFFF" android:textColorHint="#888888" />
+    <EditText android:id="@+id/et_filename_template" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:hint="Filename template: {label}_{n}" android:inputType="text" android:textColor="#FFFFFF" android:textColorHint="#888888" />
+    <Spinner android:id="@+id/sp_export_format" android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <CheckBox android:id="@+id/cb_zip_export" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Create a ZIP instead of a folder" android:textColor="#FFFFFF" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Select a sample, then move it to set export order."
+        android:textColor="#888888" android:textSize="12sp" />
+    <ListView android:id="@+id/lv_pack_samples" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:choiceMode="singleChoice" android:divider="#333333" android:dividerHeight="1dp" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+        <Button android:id="@+id/btn_move_up" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Move up" android:textAllCaps="false" />
+        <Button android:id="@+id/btn_move_down" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Move down" android:textAllCaps="false" />
+    </LinearLayout>
+    <Button android:id="@+id/btn_save_pack" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Save pack" android:textAllCaps="false" />
+    <Button android:id="@+id/btn_export_pack" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Export pack" android:textAllCaps="false" />
+    <TextView android:id="@+id/tv_export_progress" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FFFFFF" />
+</LinearLayout>

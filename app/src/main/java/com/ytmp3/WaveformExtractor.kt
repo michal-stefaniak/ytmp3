@@ -3,8 +3,6 @@ package com.ytmp3
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 object WaveformExtractor {
 
@@ -19,7 +17,9 @@ object WaveformExtractor {
         bucketCount: Int = 2000
     ): Result<WaveformData> = withContext(Dispatchers.IO) {
         runCatching {
-            val result = FFmpegBinary.run(
+            val reducer = StreamingPeakReducer(bucketCount)
+            val decoder = Pcm16LeDecoder()
+            val result = FFmpegBinary.streamPcm(
                 context,
                 listOf(
                     "-i", filePath,
@@ -29,27 +29,24 @@ object WaveformExtractor {
                     "-acodec", "pcm_s16le",
                     "pipe:1"
                 )
-            )
+            ) { bytes, offset, length ->
+                decoder.accept(bytes, offset, length, reducer::accept)
+            }
             if (result.exitCode != 0) {
                 throw IllegalStateException("ffmpeg peak extraction failed: ${result.stderr}")
             }
-            val pcm = bytesToShorts(result.stdout)
+            if (!decoder.finish()) {
+                throw IllegalStateException("ffmpeg peak extraction produced a truncated PCM sample")
+            }
             // Duration is derived from this same ffmpeg decode (sample count / sample rate) rather
             // than from a separate source like MediaMetadataRetriever. MediaMetadataRetriever is a
             // known source of inaccurate durations for MP3s carrying embedded thumbnail/metadata --
-            // which every download from this app has (--embed-thumbnail --embed-metadata) -- and
+            // which can otherwise confuse Android's metadata readers -- and
             // WaveformView derives its ms-per-peak-bucket from this duration while SampleExporter
             // cuts the real file with ffmpeg -ss/-to using the same ms values. Two unreconciled
             // duration sources would let those diverge silently, exporting a shifted slice of audio.
-            val durationMs = pcm.size.toLong() * 1000L / SAMPLE_RATE_HZ
-            WaveformData(PeakMath.reduceToPeaks(pcm, bucketCount), durationMs)
+            val durationMs = reducer.acceptedSampleCount * 1000L / SAMPLE_RATE_HZ
+            WaveformData(reducer.finish(), durationMs)
         }
-    }
-
-    private fun bytesToShorts(bytes: ByteArray): ShortArray {
-        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        val shorts = ShortArray(bytes.size / 2)
-        for (i in shorts.indices) shorts[i] = buffer.getShort(i * 2)
-        return shorts
     }
 }
