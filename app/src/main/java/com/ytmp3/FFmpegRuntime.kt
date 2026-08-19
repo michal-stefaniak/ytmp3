@@ -8,6 +8,7 @@ import java.io.File
 object FFmpegRuntime {
     private const val assetDirectory = "ffmpeg-runtime"
     private const val installedDirectory = "ffmpeg-runtime"
+    private const val runtimeVersion = "1"
     private val supportedAbis = setOf("arm64-v8a", "armeabi-v7a", "x86_64")
     private val libraries = listOf(
         "libandroid-posix-semaphore.so",
@@ -22,14 +23,12 @@ object FFmpegRuntime {
     fun install(context: Context) {
         val abi = Build.SUPPORTED_ABIS.firstOrNull { it in supportedAbis }
             ?: throw IllegalStateException("No bundled FFmpeg runtime for ${Build.SUPPORTED_ABIS.joinToString()}")
-        val destination = libraryDirectory(context).apply { mkdirs() }
-        libraries.forEach { library ->
-            val target = File(destination, library)
-            if (!target.isFile) {
-                context.assets.open("$assetDirectory/$abi/$library").use { input ->
-                    target.outputStream().use(input::copyTo)
-                }
-            }
+        AtomicRuntimeInstaller.install(
+            destination = libraryDirectory(context),
+            version = runtimeVersion,
+            libraries = libraries
+        ) { library ->
+            context.assets.open("$assetDirectory/$abi/$library")
         }
     }
 }
