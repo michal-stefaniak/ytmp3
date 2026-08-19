@@ -10,6 +10,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         try {
+            FFmpegRuntime.install(this)
             FFmpeg.getInstance().init(this)
         } catch (e: Exception) {
             e.printStackTrace()

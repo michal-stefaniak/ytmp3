@@ -16,11 +16,19 @@ object FFmpegBinary {
 
     /**
      * The retained ffmpeg artifact extracts its bundled shared libraries here at app startup
-     * (see App.kt's FFmpeg.getInstance().init() call). This app has no downloader or Python
-     * runtime, so only ffmpeg's own library directory is exposed to the child process.
+     * (see App.kt's FFmpeg.getInstance().init() call). The app-native directory comes first so
+     * the packaged NDK C++ runtime remains visible to libraries extracted by the artifact.
      */
     fun ldLibraryPath(context: Context): String {
-        return File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/lib").absolutePath
+        val ffmpegLibraries = File(
+            context.noBackupFilesDir,
+            "youtubedl-android/packages/ffmpeg/usr/lib"
+        ).absolutePath
+        return listOf(
+            context.applicationInfo.nativeLibraryDir,
+            FFmpegRuntime.libraryDirectory(context).absolutePath,
+            ffmpegLibraries
+        ).joinToString(":")
     }
 
     /**

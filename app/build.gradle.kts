@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+import java.util.zip.ZipFile
+
 android {
     namespace = "com.ytmp3"
     compileSdk = 35
@@ -75,4 +77,28 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("io.mockk:mockk:1.13.11")
+}
+
+/** Guards the native runtime dependencies required by FFmpeg's extracted libraries. */
+tasks.register("verifyDebugCxxRuntime") {
+    dependsOn("assembleDebug")
+    doLast {
+        val apk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+        val abis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        val requiredEntries = abis.map { "lib/$it/libc++_shared.so" } +
+            abis.flatMap { abi ->
+                listOf(
+                    "libandroid-posix-semaphore.so",
+                    "libandroid-support.so",
+                    "libcrypto.so.3",
+                    "libexpat.so.1"
+                ).map { library -> "assets/ffmpeg-runtime/$abi/$library" }
+            }
+        ZipFile(apk).use { zip ->
+            val missing = requiredEntries.filter { zip.getEntry(it) == null }
+            check(missing.isEmpty()) {
+                "Debug APK is missing FFmpeg native runtime libraries: ${missing.joinToString()}"
+            }
+        }
+    }
 }

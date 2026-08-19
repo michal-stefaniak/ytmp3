@@ -22,12 +22,15 @@ class FFmpegBinaryTest {
     }
 
     @Test
-    fun `ldLibraryPath includes only the retained ffmpeg artifact extracted usr-lib dir`() {
+    fun `ldLibraryPath includes app native libraries before the retained ffmpeg libraries`() {
         val ctx = mockk<Context>()
+        val appInfo = mockk<android.content.pm.ApplicationInfo>()
+        appInfo.nativeLibraryDir = "/data/app/com.ytmp3/lib/x86_64"
+        every { ctx.applicationInfo } returns appInfo
         every { ctx.noBackupFilesDir } returns File("/data/data/com.ytmp3/no_backup")
 
         assertEquals(
-            "/data/data/com.ytmp3/no_backup/youtubedl-android/packages/ffmpeg/usr/lib",
+            "/data/app/com.ytmp3/lib/x86_64:/data/data/com.ytmp3/no_backup/ffmpeg-runtime:/data/data/com.ytmp3/no_backup/youtubedl-android/packages/ffmpeg/usr/lib",
             FFmpegBinary.ldLibraryPath(ctx)
         )
     }
