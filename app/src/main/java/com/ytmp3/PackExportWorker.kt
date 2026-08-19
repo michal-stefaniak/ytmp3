@@ -120,7 +120,7 @@ class PackExportWorker(context: Context, params: WorkerParameters) : CoroutineWo
             .setContentText(message)
             .setOngoing(true)
             .build()
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        return ForegroundInfo(NOTIFICATION_ID, notification, PackExportForeground.serviceType)
     }
 
     private fun safeName(value: String): String = value.replace(Regex("[^A-Za-z0-9 _-]"), "_").trim()

@@ -4,6 +4,7 @@ plugins {
 }
 
 import java.util.zip.ZipFile
+import javax.xml.parsers.DocumentBuilderFactory
 
 android {
     namespace = "com.ytmp3"
@@ -99,6 +100,38 @@ tasks.register("verifyDebugCxxRuntime") {
             check(missing.isEmpty()) {
                 "Debug APK is missing FFmpeg native runtime libraries: ${missing.joinToString()}"
             }
+        }
+    }
+}
+
+/** Android 14+ requires WorkManager's foreground service to declare its service type. */
+tasks.register("verifyDebugForegroundServiceType") {
+    dependsOn("processDebugMainManifest")
+    doLast {
+        val manifest = layout.buildDirectory.file(
+            "intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml"
+        ).get().asFile
+        val factory = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+        val document = factory.newDocumentBuilder().parse(manifest)
+        val androidNamespace = "http://schemas.android.com/apk/res/android"
+        val service = (0 until document.getElementsByTagName("service").length)
+            .map { document.getElementsByTagName("service").item(it) as org.w3c.dom.Element }
+            .firstOrNull {
+                it.getAttributeNS(androidNamespace, "name") ==
+                    "androidx.work.impl.foreground.SystemForegroundService"
+            }
+        check(service?.getAttributeNS(androidNamespace, "foregroundServiceType") == "dataSync") {
+            "WorkManager SystemForegroundService must declare android:foregroundServiceType=\"dataSync\""
+        }
+        val permissions = (0 until document.getElementsByTagName("uses-permission").length)
+            .map { document.getElementsByTagName("uses-permission").item(it) as org.w3c.dom.Element }
+            .map { it.getAttributeNS(androidNamespace, "name") }
+            .toSet()
+        check("android.permission.FOREGROUND_SERVICE" in permissions) {
+            "Missing android.permission.FOREGROUND_SERVICE"
+        }
+        check("android.permission.FOREGROUND_SERVICE_DATA_SYNC" in permissions) {
+            "Missing android.permission.FOREGROUND_SERVICE_DATA_SYNC"
         }
     }
 }
